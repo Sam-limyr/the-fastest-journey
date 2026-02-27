@@ -7,7 +7,8 @@
       "Bash(python -c \"import pandas as pd; df = pd.read_csv\\(''c:/Users/Sam/Desktop/datamall/mrt_volume/data/station_volumes/transport_node_train_202506.csv''\\); print\\(df[''DAY_TYPE''].unique\\(\\)\\); print\\(df[''TIME_PER_HOUR''].unique\\(\\)[:20]\\); print\\(df[''PT_CODE''].str.contains\\(''/''\\).sum\\(\\), ''interchange rows''\\)\")",
       "Bash(.venv/Scripts/python data_driven_rankings.py)",
       "Bash(.venv/Scripts/python -:*)",
-      "Bash(.venv/Scripts/python -c \":*)"
+      "Bash(.venv/Scripts/python -c \":*)",
+      "Bash(python -c \":*)"
     ]
   }
 }

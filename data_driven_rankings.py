@@ -77,6 +77,7 @@ COLUMN_DAILY_AVG_TAP_OUT = "daily_avg_tap_out"
 # Aggregated morning-window column names (output of get_weekday_morning_aggregates)
 COLUMN_MORNING_TAP_IN  = "daily_avg_morning_tap_in"
 COLUMN_MORNING_TAP_OUT = "daily_avg_morning_tap_out"
+COLUMN_COMMUTE_PENALTY_SCORE  = "commute_penalty_score"
 COLUMN_EXPECTED_COMMUTE_MINUTES = "expected_commute_minutes"
 
 # How many top stations to print in the diagnostic tables
@@ -232,6 +233,58 @@ def derive_work_destination_weights(
 
 
 # ---------------------------------------------------------------------------
+# Commute penalty function
+# ---------------------------------------------------------------------------
+
+# Satisfaction band thresholds (minutes).
+COMMUTE_BAND_HAPPY_LIMIT = 30.0   # < 30 min: happy
+COMMUTE_BAND_OKAY_LIMIT  = 45.0   # 30–45 min: okay;  > 45 min: not happy
+
+# Power exponents applied within each band.  Values above 1.0 mean longer
+# trips are penalised super-linearly; a higher exponent = steeper growth.
+COMMUTE_EXPONENT_HAPPY   = 1.1   # near-linear — commuters are broadly happy
+COMMUTE_EXPONENT_OKAY    = 1.5   # noticeably exponential — discomfort growing
+COMMUTE_EXPONENT_UNHAPPY = 2.0   # steep — commuters are unhappy
+
+# Continuity scalars, derived analytically so the penalty curve has no
+# discontinuous jumps at the band boundaries.
+#
+#   Band 1:  f(t)      = t ^ HAPPY
+#   Band 2:  f(t)      = _C2 * t ^ OKAY      ; C2 chosen so f(30⁻) == f(30⁺)
+#   Band 3:  f(t)      = _C3 * t ^ UNHAPPY   ; C3 chosen so f(45⁻) == f(45⁺)
+#
+#   C2 = 30^(HAPPY  − OKAY)
+#   C3 = C2 × 45^(OKAY − UNHAPPY)
+_C2 = COMMUTE_BAND_HAPPY_LIMIT ** (COMMUTE_EXPONENT_HAPPY  - COMMUTE_EXPONENT_OKAY)
+_C3 = _C2 * COMMUTE_BAND_OKAY_LIMIT ** (COMMUTE_EXPONENT_OKAY - COMMUTE_EXPONENT_UNHAPPY)
+
+
+def commute_penalty(minutes: float) -> float:
+    """
+    Convert a raw travel time (minutes) into a dimensionless penalty score
+    using a continuous piecewise-power function.
+
+    The exponent steps up at each satisfaction-band boundary, so each
+    additional minute of commute hurts progressively more:
+
+        t < 30  min  →  t ^ 1.1          (happy: near-linear)
+        30 ≤ t < 45  →  _C2 × t ^ 1.5   (okay: growing discomfort)
+        t ≥ 45  min  →  _C3 × t ^ 2.0   (unhappy: steep penalty)
+
+    _C2 and _C3 guarantee continuity — the curve has no jumps at t=30 or t=45.
+
+    The result is not in minutes; it is a relative penalty score.
+    Rankings still hold: higher score = worse commute.
+    """
+    if minutes < COMMUTE_BAND_HAPPY_LIMIT:
+        return minutes ** COMMUTE_EXPONENT_HAPPY
+    elif minutes < COMMUTE_BAND_OKAY_LIMIT:
+        return _C2 * minutes ** COMMUTE_EXPONENT_OKAY
+    else:
+        return _C3 * minutes ** COMMUTE_EXPONENT_UNHAPPY
+
+
+# ---------------------------------------------------------------------------
 # Ranking
 # ---------------------------------------------------------------------------
 
@@ -311,30 +364,59 @@ def calculate_data_driven_ratings(
             travel_times[COLUMN_TO_STATION_NAME].isin(residential_stations)
         ]
 
-    # 6. Compute weighted trip durations
+    # 6. Compute both raw and penalized weighted trip durations
     travel_times = travel_times.copy()
     travel_times[COLUMN_WEIGHT] = (
         travel_times[COLUMN_FROM_STATION_NAME].map(work_weights)
     )
     travel_times[COLUMN_WEIGHTED_TRIP_DURATION] = (
+        travel_times[COLUMN_WEIGHT]
+        * travel_times[COLUMN_TRIP_DURATION_IN_MINUTES].map(commute_penalty)
+    )
+    _RAW_WEIGHTED = "_raw_weighted"
+    travel_times[_RAW_WEIGHTED] = (
         travel_times[COLUMN_WEIGHT] * travel_times[COLUMN_TRIP_DURATION_IN_MINUTES]
     )
 
     # 7. Aggregate per residential station and rank
     results = (
-        travel_times[[COLUMN_TO_STATION_NAME, COLUMN_WEIGHTED_TRIP_DURATION]]
+        travel_times[[COLUMN_TO_STATION_NAME, COLUMN_WEIGHTED_TRIP_DURATION, _RAW_WEIGHTED]]
         .groupby(COLUMN_TO_STATION_NAME)
         .sum()
-        .rename(columns={COLUMN_WEIGHTED_TRIP_DURATION: COLUMN_EXPECTED_COMMUTE_MINUTES})
-        .sort_values(COLUMN_EXPECTED_COMMUTE_MINUTES, ascending=True)
+        .rename(columns={
+            COLUMN_WEIGHTED_TRIP_DURATION: COLUMN_COMMUTE_PENALTY_SCORE,
+            _RAW_WEIGHTED: COLUMN_EXPECTED_COMMUTE_MINUTES,
+        })
+        .sort_values(COLUMN_COMMUTE_PENALTY_SCORE, ascending=True)
     )
     results.index.name = "residential_station"
 
     print("=" * 60)
-    print("HDB Station Rankings — Expected Commute Time")
-    print(f"(destination weights from weekday daily avg tap-outs, "
+    print("Residential Station Rankings — Penalized Commute Score")
+    print(f"(piecewise-exponential penalty: "
+          f"<{COMMUTE_BAND_HAPPY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_HAPPY}, "
+          f"{COMMUTE_BAND_HAPPY_LIMIT:.0f}–{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_OKAY}, "
+          f">{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_UNHAPPY})")
+    print(f"(destination weights: weekday daily avg tap-outs, "
           f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month})")
-    print("Lower score = shorter expected commute based on real MRT usage")
+    print("Lower score = better — non-linear, so long commutes are disproportionately penalised")
+    print()
+    print(f"  {'min':>4}  {'multiplier':>10}  band")
+    print(f"  {'----':>4}  {'----------':>10}  ----")
+    for _t in [10, 20, 30, 40, 45, 55, 60]:
+        _mult = commute_penalty(_t) / _t
+        if _t == COMMUTE_BAND_HAPPY_LIMIT:
+            _band = f"happy → okay boundary"
+        elif _t == COMMUTE_BAND_OKAY_LIMIT:
+            _band = f"okay → unhappy boundary"
+        elif _t < COMMUTE_BAND_HAPPY_LIMIT:
+            _band = "happy"
+        elif _t < COMMUTE_BAND_OKAY_LIMIT:
+            _band = "okay"
+        else:
+            _band = "unhappy"
+        print(f"  {_t:>4}  {_mult:>10.3f}x  {_band}")
+    print()
     print("=" * 60)
     print(results.to_string())
 
