@@ -67,9 +67,16 @@ _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 WEEKDAY_MORNING_START_HOUR = 7   # 7am
 WEEKDAY_MORNING_END_HOUR   = 10  # up to but not including 10am (i.e. 7, 8, 9)
 
-# Result column names
-COLUMN_MORNING_TAP_IN  = "weekday_morning_tap_in"
-COLUMN_MORNING_TAP_OUT = "weekday_morning_tap_out"
+# Month used for analysis (must have an entry in _MONTH_NORMALIZATION_FACTORS)
+ANALYSIS_MONTH = "202506"
+
+# Column names in the processed (normalized) daily-average CSV
+COLUMN_DAILY_AVG_TAP_IN  = "daily_avg_tap_in"
+COLUMN_DAILY_AVG_TAP_OUT = "daily_avg_tap_out"
+
+# Aggregated morning-window column names (output of get_weekday_morning_aggregates)
+COLUMN_MORNING_TAP_IN  = "daily_avg_morning_tap_in"
+COLUMN_MORNING_TAP_OUT = "daily_avg_morning_tap_out"
 COLUMN_EXPECTED_COMMUTE_MINUTES = "expected_commute_minutes"
 
 # How many top stations to print in the diagnostic tables
@@ -157,8 +164,12 @@ def build_comprehensive_code_to_name_mapping() -> dict:
 
 def get_weekday_morning_aggregates(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Filter to weekday morning rows and aggregate tap-in / tap-out totals
-    per station across the analysis window.
+    Filter to weekday morning rows and sum daily-average tap-in / tap-out
+    across the analysis window (WEEKDAY_MORNING_START_HOUR–WEEKDAY_MORNING_END_HOUR).
+
+    Expects a processed daily-average DataFrame (output of write_processed_daily_averages).
+    The resulting values represent the average total passengers entering/exiting
+    each station across the full morning window on a typical weekday.
 
     Returns a DataFrame sorted by tap-out volume descending, with columns:
         STATION_NAME, COLUMN_MORNING_TAP_IN, COLUMN_MORNING_TAP_OUT
@@ -171,8 +182,8 @@ def get_weekday_morning_aggregates(df: pd.DataFrame) -> pd.DataFrame:
         df.groupby(STATION_NAME)
         .agg(
             **{
-                COLUMN_MORNING_TAP_IN:  (TOTAL_TAP_IN_VOLUME,  "sum"),
-                COLUMN_MORNING_TAP_OUT: (TOTAL_TAP_OUT_VOLUME, "sum"),
+                COLUMN_MORNING_TAP_IN:  (COLUMN_DAILY_AVG_TAP_IN,  "sum"),
+                COLUMN_MORNING_TAP_OUT: (COLUMN_DAILY_AVG_TAP_OUT, "sum"),
             }
         )
         .reset_index()
@@ -224,21 +235,33 @@ def derive_work_destination_weights(
 # Ranking
 # ---------------------------------------------------------------------------
 
-def calculate_data_driven_ratings() -> pd.DataFrame:
+def calculate_data_driven_ratings(year_month: str = ANALYSIS_MONTH) -> pd.DataFrame:
     """
     Main entry point.  Prints diagnostic tables and returns a DataFrame of
     HDB stations ranked by expected commute time (ascending).
-    """
-    # 1. Load and enrich volume data
-    volume_df = load_volume_data(DATA_PATH__PASSENGER_VOLUME_BY_TRAIN_STATIONS)
 
-    # 2. Aggregate to weekday morning window
+    Reads from the pre-processed daily-average CSV for the given month.
+    Run write_processed_daily_averages(year_month) first if the file does not exist.
+    """
+    processed_path = os.path.join(
+        PROCESSED_DATA_DIR, f"transport_node_train_{year_month}_daily_avg.csv"
+    )
+    # 1. Load the pre-processed daily-average data (station names already resolved)
+    volume_df = pd.read_csv(processed_path)
+
+    # 2. Aggregate daily averages across the morning window
     morning_df = get_weekday_morning_aggregates(volume_df)
+
+    morning_window = (
+        f"{WEEKDAY_MORNING_START_HOUR}am"
+        f"–{WEEKDAY_MORNING_END_HOUR}am"
+        f" weekday daily avg, {year_month}"
+    )
 
     # 3. Print diagnostics: where people work and where they live
     print("=" * 60)
-    print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  "
-          f"(weekday morning tap-OUTs, hours {WEEKDAY_MORNING_START_HOUR}–{WEEKDAY_MORNING_END_HOUR - 1})")
+    print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  ({morning_window})")
+    print("Tap-OUT = people arriving at work / school")
     print("=" * 60)
     print(
         morning_df[[STATION_NAME, COLUMN_MORNING_TAP_OUT]]
@@ -248,8 +271,8 @@ def calculate_data_driven_ratings() -> pd.DataFrame:
 
     print()
     print("=" * 60)
-    print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  "
-          f"(weekday morning tap-INs, hours {WEEKDAY_MORNING_START_HOUR}–{WEEKDAY_MORNING_END_HOUR - 1})")
+    print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  ({morning_window})")
+    print("Tap-IN = people leaving home")
     print("=" * 60)
     print(
         morning_df[[STATION_NAME, COLUMN_MORNING_TAP_IN]]
@@ -295,8 +318,8 @@ def calculate_data_driven_ratings() -> pd.DataFrame:
 
     print("=" * 60)
     print("HDB Station Rankings — Expected Commute Time")
-    print(f"(destination weights from weekday morning tap-outs, "
-          f"hours {WEEKDAY_MORNING_START_HOUR}–{WEEKDAY_MORNING_END_HOUR - 1})")
+    print(f"(destination weights from weekday daily avg tap-outs, "
+          f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month})")
     print("Lower score = shorter expected commute based on real MRT usage")
     print("=" * 60)
     print(results.to_string())
@@ -360,9 +383,8 @@ def get_normalization_factors(year_month: str) -> tuple[float, float]:
 PROCESSED_DATA_DIR = os.path.join(_REPO_ROOT, "mrt_volume", "data", "processed")
 
 # Column names for the processed (normalized) output CSV
-COLUMN_STATION_CODES    = "station_codes"    # original combined code, e.g. "EW16/NE3/TE17"
-COLUMN_DAILY_AVG_TAP_IN  = "daily_avg_tap_in"
-COLUMN_DAILY_AVG_TAP_OUT = "daily_avg_tap_out"
+COLUMN_STATION_CODES = "station_codes"    # original combined code, e.g. "EW16/NE3/TE17"
+# COLUMN_DAILY_AVG_TAP_IN and COLUMN_DAILY_AVG_TAP_OUT are defined in the constants section above
 
 
 def write_processed_daily_averages(year_month: str) -> str:
