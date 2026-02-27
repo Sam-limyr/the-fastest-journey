@@ -33,7 +33,7 @@ import pandas as pd
 
 from mrt_distance.mrt_distance import (
     read_travel_time_data,
-    get_hdb_mrt_stations,
+    get_residential_mrt_stations,
     COLUMN_FROM_STATION_NAME,
     COLUMN_TO_STATION_NAME,
     COLUMN_TRIP_DURATION_IN_MINUTES,
@@ -306,7 +306,7 @@ def calculate_data_driven_ratings(
         travel_times[COLUMN_FROM_STATION_NAME].isin(work_weights)
     ]
     if residential_only:
-        residential_stations = set(get_hdb_mrt_stations())
+        residential_stations = set(get_residential_mrt_stations())
         travel_times = travel_times[
             travel_times[COLUMN_TO_STATION_NAME].isin(residential_stations)
         ]
@@ -372,6 +372,30 @@ _MONTH_NORMALIZATION_FACTORS = {
     # Effective weekday count    = 21 − 0.5 = 20.5
     # Effective non-weekday count =  9 + 0.5 =  9.5
     "202506": (20.5, 9.5),
+
+    # --- November 2025 ---
+    # Calendar: 30 days. Nov 1 = Saturday.
+    # No public holidays in November 2025.
+    # Weekdays (Mon–Fri): 3–7, 10–14, 17–21, 24–28 = 20 days
+    # Non-weekdays (Sat–Sun): 1–2, 8–9, 15–16, 22–23, 29–30 = 10 days
+    "202511": (20.0, 10.0),
+
+    # --- December 2025 ---
+    # Calendar: 31 days. Dec 1 = Monday.
+    # Public holiday: Christmas Day, 25 Dec (Thursday) — falls on a weekday.
+    # No off-in-lieu complexity (PH is on a weekday, not a weekend).
+    # Weekdays (Mon–Fri) before PH adjustment: 23 days.  Minus Dec 25 = 22.
+    # Non-weekdays (Sat–Sun): 8 days.  Plus Dec 25 PH = 9.
+    "202512": (22.0, 9.0),
+
+    # --- January 2026 ---
+    # Calendar: 31 days. Jan 1 = Thursday.
+    # Public holiday: New Year's Day, 1 Jan (Thursday) — falls on a weekday.
+    # Chinese New Year 2026 falls on 17 Feb — not in January.
+    # No off-in-lieu complexity (PH is on a weekday, not a weekend).
+    # Weekdays (Mon–Fri) before PH adjustment: 22 days.  Minus Jan 1 = 21.
+    # Non-weekdays (Sat–Sun): 9 days.  Plus Jan 1 PH = 10.
+    "202601": (21.0, 10.0),
 }
 
 
