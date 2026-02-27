@@ -235,10 +235,23 @@ def derive_work_destination_weights(
 # Ranking
 # ---------------------------------------------------------------------------
 
-def calculate_data_driven_ratings(year_month: str = ANALYSIS_MONTH) -> pd.DataFrame:
+def calculate_data_driven_ratings(
+    year_month: str = ANALYSIS_MONTH,
+    residential_only: bool = True,
+) -> pd.DataFrame:
     """
     Main entry point.  Prints diagnostic tables and returns a DataFrame of
-    HDB stations ranked by expected commute time (ascending).
+    stations ranked by expected commute time (ascending).
+
+    Parameters
+    ----------
+    year_month : str
+        Month to analyse, e.g. "202506".  A processed daily-average CSV for
+        this month must exist in PROCESSED_DATA_DIR.
+    residential_only : bool
+        If True  (default), only HDB-served stations appear in the rankings.
+        If False, every station in the travel-time dataset is ranked, giving
+        a pure "centrality" score regardless of housing type.
 
     Reads from the pre-processed daily-average CSV for the given month.
     Run write_processed_daily_averages(year_month) first if the file does not exist.
@@ -288,14 +301,15 @@ def calculate_data_driven_ratings(year_month: str = ANALYSIS_MONTH) -> pd.DataFr
     work_weights = derive_work_destination_weights(morning_df, travel_station_names)
 
     # 5. Filter travel-time matrix to the stations we have weights for,
-    #    and restrict destinations to HDB residential stations only
-    residential_stations = set(get_hdb_mrt_stations())
+    #    and optionally restrict destinations to HDB residential stations only
     travel_times = travel_times[
         travel_times[COLUMN_FROM_STATION_NAME].isin(work_weights)
     ]
-    travel_times = travel_times[
-        travel_times[COLUMN_TO_STATION_NAME].isin(residential_stations)
-    ]
+    if residential_only:
+        residential_stations = set(get_hdb_mrt_stations())
+        travel_times = travel_times[
+            travel_times[COLUMN_TO_STATION_NAME].isin(residential_stations)
+        ]
 
     # 6. Compute weighted trip durations
     travel_times = travel_times.copy()
