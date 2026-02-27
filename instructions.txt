@@ -1,0 +1,12 @@
+The following API Account Key grants you access to all dynamic / real-time datasets in DataMall. For instructions on how to access the APIs and make use of the datasets, you may refer to the API User Guide here. [https://datamall.lta.gov.sg/content/dam/datamall/datasets/LTA_DataMall_API_User_Guide.pdf]
+
+API Account Key: RomoaQ6ATPuLJ2PyRmXi2g==
+
+
+
+Your SDK Account Key is
+
+52dae4d6cd5aa6d988e89298a1734c88
+
+Please download the SDK documentation from:
+"https://datamall.lta.gov.sg/content/dam/datamall/pdf/Extended_OBU_Library_SDK_Developer_Guide.pdf"
