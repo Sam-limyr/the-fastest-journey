@@ -21,7 +21,12 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from data_driven_rankings import calculate_commute_scores, ANALYSIS_MONTH, COLUMN_EXPECTED_COMMUTE_MINUTES
+from data_driven_rankings import (
+    calculate_commute_scores,
+    calculate_data_driven_ratings,
+    ANALYSIS_MONTH,
+    COLUMN_EXPECTED_COMMUTE_MINUTES,
+)
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_HTML = os.path.join(_REPO_ROOT, "mrt_commute_scores.html")
@@ -169,18 +174,57 @@ def text_color_for(score: int) -> str:
 # Build the map
 # ---------------------------------------------------------------------------
 
-def build_map(year_month: str = ANALYSIS_MONTH, weight_method: str = "all_hours_weighted") -> str:
+def build_map(
+    year_month: str = ANALYSIS_MONTH,
+    weight_method: str = "all_hours_weighted",
+    scoring_method: str = "log",
+    station_scope: str = "residential",
+) -> str:
     """
     Compute commute scores, fetch station coordinates, and write an HTML map.
+
+    Parameters
+    ----------
+    year_month : str
+        Month to analyse (must have a normalization entry), e.g. "202601".
+    weight_method : str
+        "morning_peak" or "all_hours_weighted" (default).
+    scoring_method : str
+        "log" (default), "linear", or "minutes" (raw minutes, no 1-10 scale).
+    station_scope : str
+        "residential" (default), "hdb", or "all".
 
     Returns the path of the written HTML file.
     """
     print("Computing commute scores …")
-    scores_df = calculate_commute_scores(
-        year_month=year_month,
-        residential_only=True,
-        weight_method=weight_method,
-    )
+    if scoring_method == "minutes":
+        # Raw minutes mode: use the penalty rankings directly, no 1-10 scale
+        raw_df = calculate_data_driven_ratings(
+            year_month=year_month,
+            station_scope=station_scope,
+            verbose=False,
+            weight_method=weight_method,
+        )
+        minutes_series = raw_df[COLUMN_EXPECTED_COMMUTE_MINUTES]
+        mn, mx = minutes_series.min(), minutes_series.max()
+        # Map minutes linearly to 1-10 so the colour scale is still usable
+        scores_df = raw_df[[COLUMN_EXPECTED_COMMUTE_MINUTES]].copy()
+        scores_df["commute_score"] = (
+            (1 + 9 * (mx - minutes_series) / (mx - mn))
+            .round()
+            .clip(1, 10)
+            .astype(int)
+        )
+        display_label = "raw minutes"
+    else:
+        scores_df = calculate_commute_scores(
+            year_month=year_month,
+            station_scope=station_scope,
+            weight_method=weight_method,
+            scoring_method=scoring_method,
+            verbose=False,
+        )
+        display_label = f"{scoring_method} score"
 
     print("\nFetching station coordinates from LTA DataMall …")
     coords = fetch_station_coords()
@@ -217,8 +261,11 @@ def build_map(year_month: str = ANALYSIS_MONTH, weight_method: str = "all_hours_
             weight=1.5,
             tooltip=folium.Tooltip(
                 f"<b>{station}</b><br>"
-                f"Score: <b>{score}/10</b><br>"
-                f"Expected commute: {minutes:.0f} min",
+                + (
+                    f"Expected commute: <b>{minutes:.0f} min</b>"
+                    if scoring_method == "minutes"
+                    else f"Score: <b>{score}/10</b><br>Expected commute: {minutes:.0f} min"
+                ),
                 sticky=False,
             ),
         ).add_to(m)
@@ -282,6 +329,7 @@ def build_map(year_month: str = ANALYSIS_MONTH, weight_method: str = "all_hours_
     # -----------------------------------------------------------------------
     # Title
     # -----------------------------------------------------------------------
+    scope_labels = {"residential": "residential", "hdb": "HDB", "all": "all stations"}
     title_html = f"""
     <div style="
         position: fixed;
@@ -300,7 +348,7 @@ def build_map(year_month: str = ANALYSIS_MONTH, weight_method: str = "all_hours_
         Singapore MRT Commute Score &nbsp;|&nbsp;
         <span style="font-weight:normal;font-size:12px;">
             {year_month[:4]}-{year_month[4:]} &middot; all-hours weighted &middot;
-            residential stations
+            {display_label} &middot; {scope_labels.get(station_scope, station_scope)} stations
         </span>
     </div>
     """
@@ -312,4 +360,39 @@ def build_map(year_month: str = ANALYSIS_MONTH, weight_method: str = "all_hours_
 
 
 if __name__ == "__main__":
-    build_map()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate an interactive HTML map of Singapore MRT commute scores.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python visualize_scores.py\n"
+            "  python visualize_scores.py --display log --scope residential\n"
+            "  python visualize_scores.py --display minutes --scope all\n"
+            "  python visualize_scores.py --display linear --scope hdb"
+        ),
+    )
+    parser.add_argument(
+        "--display",
+        choices=["minutes", "linear", "log"],
+        default="log",
+        help=(
+            "minutes  — colour by raw expected commute time (no 1-10 scale)\n"
+            "linear   — 1-10 score using z-scores of raw minutes\n"
+            "log      — 1-10 score using z-scores of log(minutes) [default]"
+        ),
+    )
+    parser.add_argument(
+        "--scope",
+        choices=["hdb", "residential", "all"],
+        default="residential",
+        help=(
+            "hdb         — HDB estate stations only\n"
+            "residential — all residential stations [default]\n"
+            "all         — every station in the travel-time dataset"
+        ),
+    )
+    args = parser.parse_args()
+
+    build_map(scoring_method=args.display, station_scope=args.scope)

@@ -29,11 +29,13 @@ from __future__ import annotations
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 
 from mrt_distance.mrt_distance import (
     read_travel_time_data,
     get_residential_mrt_stations,
+    get_hdb_mrt_stations,
     COLUMN_FROM_STATION_NAME,
     COLUMN_TO_STATION_NAME,
     COLUMN_TRIP_DURATION_IN_MINUTES,
@@ -369,7 +371,7 @@ def commute_penalty(minutes: float) -> float:
 
 def calculate_data_driven_ratings(
     year_month: str = ANALYSIS_MONTH,
-    residential_only: bool = True,
+    station_scope: str = "residential",
     verbose: bool = True,
     weight_method: str = "morning_peak",
 ) -> pd.DataFrame:
@@ -381,10 +383,11 @@ def calculate_data_driven_ratings(
     year_month : str
         Month to analyse, e.g. "202506".  A processed daily-average CSV for
         this month must exist in PROCESSED_DATA_DIR.
-    residential_only : bool
-        If True  (default), only residential stations appear in the rankings.
-        If False, every station in the travel-time dataset is ranked, giving
-        a pure "centrality" score regardless of housing type.
+    station_scope : str
+        Which stations to include in the output rankings.
+        "residential" (default) — all residential MRT stations.
+        "hdb"                   — HDB estate MRT stations only (subset of residential).
+        "all"                   — every station in the travel-time dataset.
     verbose : bool
         If True (default), print all diagnostic and rankings tables.
         Set to False to suppress output and just get the returned DataFrame.
@@ -484,15 +487,21 @@ def calculate_data_driven_ratings(
         )
 
     # 5. Filter travel-time matrix to the stations we have weights for,
-    #    and optionally restrict destinations to HDB residential stations only
+    #    and optionally restrict destinations to a station scope subset
     travel_times = travel_times[
         travel_times[COLUMN_FROM_STATION_NAME].isin(work_weights)
     ]
-    if residential_only:
-        residential_stations = set(get_residential_mrt_stations())
+    if station_scope == "residential":
+        scope_stations = set(get_residential_mrt_stations())
         travel_times = travel_times[
-            travel_times[COLUMN_TO_STATION_NAME].isin(residential_stations)
+            travel_times[COLUMN_TO_STATION_NAME].isin(scope_stations)
         ]
+    elif station_scope == "hdb":
+        scope_stations = set(get_hdb_mrt_stations())
+        travel_times = travel_times[
+            travel_times[COLUMN_TO_STATION_NAME].isin(scope_stations)
+        ]
+    # else station_scope == "all" — no filter
 
     # 6. Compute both raw and penalized weighted trip durations
     travel_times = travel_times.copy()
@@ -536,9 +545,9 @@ def calculate_data_driven_ratings(
         for _t in [10, 20, 30, 40, 45, 55, 60]:
             _mult = commute_penalty(_t) / _t
             if _t == COMMUTE_BAND_HAPPY_LIMIT:
-                _band = f"happy → okay boundary"
+                _band = "happy -> okay boundary"
             elif _t == COMMUTE_BAND_OKAY_LIMIT:
-                _band = f"okay → unhappy boundary"
+                _band = "okay -> unhappy boundary"
             elif _t < COMMUTE_BAND_HAPPY_LIMIT:
                 _band = "happy"
             elif _t < COMMUTE_BAND_OKAY_LIMIT:
@@ -555,6 +564,10 @@ def calculate_data_driven_ratings(
 
 # ---------------------------------------------------------------------------
 # Commute scoring (1-10)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Scoring method "linear": z-scores of raw minutes
 # ---------------------------------------------------------------------------
 
 # How many standard deviations from the mean map to the edge of the 1-10
@@ -578,6 +591,10 @@ def assign_commute_scores(commute_minutes: pd.Series) -> pd.Series:
     At z = -SCORE_RANGE_SD (SCORE_RANGE_SD σ below mean): raw score = 10.
     At z = +SCORE_RANGE_SD (SCORE_RANGE_SD σ above mean):  raw score = 1.
     Stations beyond ±SCORE_RANGE_SD are clipped to 1 or 10.
+
+    Caveat: commute times are right-skewed, so the bad tail reaches further
+    from the mean than the good tail.  This causes score 1 to appear more
+    often than score 10.  Use assign_commute_scores_log for a symmetric result.
     """
     mean = commute_minutes.mean()
     std  = commute_minutes.std()
@@ -586,10 +603,53 @@ def assign_commute_scores(commute_minutes: pd.Series) -> pd.Series:
     return raw.clip(1, 10).round().astype(int)
 
 
+# ---------------------------------------------------------------------------
+# Scoring method "log": z-scores of log(minutes) — symmetric, preferred
+# ---------------------------------------------------------------------------
+
+# Commute times are right-skewed: the bad tail extends further from the mean
+# than the good tail (worst station z ≈ +2.55 vs best station z ≈ -1.89 with
+# raw minutes).  Taking log(minutes) before z-scoring makes the distribution
+# near-symmetric (ratio ≈ 1.01), so score 1 and score 10 appear equally often.
+#
+# SCORE_RANGE_SD_LOG is calibrated so that the tails of the current residential
+# dataset just reach scores 1 and 10 (rather than stopping at 9 as before).
+# Interpretation: log(minutes) is the right metric because commute goodness is
+# multiplicative — a 10 % improvement feels equally valuable at any duration.
+SCORE_RANGE_SD_LOG = 2.1
+
+
+def assign_commute_scores_log(commute_minutes: pd.Series) -> pd.Series:
+    """
+    Map expected commute times to integer 1-10 scores using z-scores of
+    log(minutes).  Shorter commutes → higher scores.
+
+    Commute times are right-skewed (bounded floor, no ceiling), so raw
+    z-scores assign more extreme values to bad stations than good ones,
+    producing more 1s than 10s.  Log-transforming first makes the
+    distribution near-symmetric and yields roughly equal extremes.
+
+    Formula:
+        z     = (log(minutes) - log_mean) / log_std
+        score = clip(round(5.5 - z / SCORE_RANGE_SD_LOG * 4.5), 1, 10)
+
+    At z = 0 (geometric-mean commute): raw score = 5.5, rounds to 5 or 6.
+    At z = ±SCORE_RANGE_SD_LOG: raw score = 1 or 10.
+    """
+    log_m = np.log(commute_minutes)
+    mean  = log_m.mean()
+    std   = log_m.std()
+    z     = (log_m - mean) / std
+    raw   = 5.5 - z / SCORE_RANGE_SD_LOG * 4.5
+    return raw.clip(1, 10).round().astype(int)
+
+
 def calculate_commute_scores(
     year_month: str = ANALYSIS_MONTH,
-    residential_only: bool = True,
-    weight_method: str = "morning_peak",
+    station_scope: str = "residential",
+    weight_method: str = "all_hours_weighted",
+    scoring_method: str = "log",
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
     Assign each MRT station a 1-10 commute score based on its expected
@@ -599,25 +659,30 @@ def calculate_commute_scores(
     ----------
     year_month : str
         Month to analyse.
-    residential_only : bool
-        If True (default), score only residential stations.
-        If False, score every station in the travel-time dataset.
+    station_scope : str
+        Which stations to score.
+        "residential" (default) — all residential MRT stations.
+        "hdb"                   — HDB estate MRT stations only.
+        "all"                   — every station in the travel-time dataset.
     weight_method : str
         Passed through to calculate_data_driven_ratings.
-        "morning_peak"       — weekday morning tap-out weights (default).
-        "all_hours_weighted" — full-day, day-count-weighted tap-out weights.
-
-    Prints:
-      - Distribution summary (mean, std, min/max with station names)
-      - Score boundary table (minute range → score, with station count per band)
-      - Full station listing sorted by score descending (ties broken by minutes)
+        "morning_peak"       — weekday morning tap-out weights.
+        "all_hours_weighted" — full-day, day-count-weighted tap-out weights (default).
+    scoring_method : str
+        How to assign 1-10 scores from expected commute minutes.
+        "log"    — z-scores of log(minutes); symmetric 1s and 10s (default).
+        "linear" — z-scores of raw minutes; produces more 1s than 10s due to
+                   the natural right-skew of commute-time distributions.
+    verbose : bool
+        If True (default), print distribution summary, score boundaries, and
+        full station listing.  Set to False to suppress all output.
 
     Returns a DataFrame indexed by station name with columns:
         commute_score, expected_commute_minutes
     """
     results  = calculate_data_driven_ratings(
         year_month=year_month,
-        residential_only=residential_only,
+        station_scope=station_scope,
         verbose=False,
         weight_method=weight_method,
     )
@@ -625,42 +690,68 @@ def calculate_commute_scores(
     mean     = minutes.mean()
     std      = minutes.std()
 
-    scope = "residential only" if residential_only else "all stations"
-    print("=" * 60)
-    print(f"Distribution of expected commute times ({year_month}, {scope})")
-    print("=" * 60)
-    print(f"  count  : {len(minutes)}")
-    print(f"  mean   : {mean:.1f} min")
-    print(f"  std    : {std:.1f} min")
-    print(f"  min    : {minutes.min():.1f} min  ({minutes.idxmin()})")
-    print(f"  25th % : {minutes.quantile(0.25):.1f} min")
-    print(f"  median : {minutes.median():.1f} min")
-    print(f"  75th % : {minutes.quantile(0.75):.1f} min")
-    print(f"  max    : {minutes.max():.1f} min  ({minutes.idxmax()})")
-    print()
+    scope_labels = {"residential": "residential only", "hdb": "HDB only", "all": "all stations"}
+    scope_label = scope_labels.get(station_scope, station_scope)
+
+    if verbose:
+        print("=" * 60)
+        print(f"Distribution of expected commute times ({year_month}, {scope_label})")
+        print("=" * 60)
+        print(f"  count  : {len(minutes)}")
+        print(f"  mean   : {mean:.1f} min")
+        print(f"  std    : {std:.1f} min")
+        print(f"  min    : {minutes.min():.1f} min  ({minutes.idxmin()})")
+        print(f"  25th % : {minutes.quantile(0.25):.1f} min")
+        print(f"  median : {minutes.median():.1f} min")
+        print(f"  75th % : {minutes.quantile(0.75):.1f} min")
+        print(f"  max    : {minutes.max():.1f} min  ({minutes.idxmax()})")
+        print()
 
     # Score boundary table.
-    # score s maps to t in (t_boundary(s+1), t_boundary(s)]  where
-    #   t_boundary(s) = mean + (6 - s) * SCORE_RANGE_SD / 4.5 * std
-    # (derived from inverting the round(5.5 - z/SD * 4.5) formula)
-    scores = assign_commute_scores(minutes)
-    K      = 4.5 / SCORE_RANGE_SD
+    # Inverted from round(5.5 - z/SD * 4.5) = s:
+    #   boundary between score s and s-1 is where raw = s - 0.5
+    #   → z_boundary = (5.5 - (s - 0.5)) / (4.5 / SD) = (6 - s) * SD / 4.5
+    # For "linear": t = mean + z * std
+    # For "log":    t = exp(log_mean + z * log_std)
+    if scoring_method == "log":
+        scores  = assign_commute_scores_log(minutes)
+        SD      = SCORE_RANGE_SD_LOG
+        log_m   = np.log(minutes)
+        lmean   = log_m.mean()
+        lstd    = log_m.std()
+        K       = 4.5 / SD
+        def t_boundary(s_offset: float) -> float:
+            return float(np.exp(lmean + s_offset / K * lstd))
+        method_label = f"log(minutes), SCORE_RANGE_SD_LOG = {SD}"
+    elif scoring_method == "linear":
+        scores  = assign_commute_scores(minutes)
+        SD      = SCORE_RANGE_SD
+        K       = 4.5 / SD
+        def t_boundary(s_offset: float) -> float:
+            return mean + s_offset / K * std
+        method_label = f"raw minutes, SCORE_RANGE_SD = {SD}"
+    else:
+        raise ValueError(
+            f"Unknown scoring_method: {scoring_method!r}. "
+            f"Use 'log' or 'linear'."
+        )
 
-    print(f"  Score boundaries  (SCORE_RANGE_SD = {SCORE_RANGE_SD})")
-    print(f"  {'score':>5}  {'commute range':>22}  {'n':>3}")
-    print(f"  {'-----':>5}  {'--------------------':>22}  {'--':>3}")
-    for s in range(10, 0, -1):
-        t_upper = mean + (6 - s) / K * std         # upper t bound (inclusive) for score s
-        t_lower = mean + (5 - s) / K * std         # lower t bound (exclusive) for score s
-        if s == 10:
-            range_str = f"<= {t_upper:.1f} min"
-        elif s == 1:
-            range_str = f">  {t_lower:.1f} min"
-        else:
-            range_str = f"{t_lower:.1f} – {t_upper:.1f} min"
-        n = (scores == s).sum()
-        print(f"  {s:>5}  {range_str:>22}  {n:>3}")
-    print()
+    if verbose:
+        print(f"  Score boundaries  ({method_label})")
+        print(f"  {'score':>5}  {'commute range':>22}  {'n':>3}")
+        print(f"  {'-----':>5}  {'--------------------':>22}  {'--':>3}")
+        for s in range(10, 0, -1):
+            t_upper = t_boundary(6 - s)   # upper minute bound (inclusive) for score s
+            t_lower = t_boundary(5 - s)   # lower minute bound (exclusive) for score s
+            if s == 10:
+                range_str = f"<= {t_upper:.1f} min"
+            elif s == 1:
+                range_str = f">  {t_lower:.1f} min"
+            else:
+                range_str = f"{t_lower:.1f} – {t_upper:.1f} min"
+            n = (scores == s).sum()
+            print(f"  {s:>5}  {range_str:>22}  {n:>3}")
+        print()
 
     # Full station listing
     results = results.copy()
@@ -670,14 +761,15 @@ def calculate_commute_scores(
         ascending=[False, True],
     )
 
-    print("=" * 60)
-    print(f"Station commute scores  ({year_month}, {scope})")
-    print("=" * 60)
-    print(
-        results[["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES]]
-        .rename(columns={COLUMN_EXPECTED_COMMUTE_MINUTES: "exp_commute_min"})
-        .to_string()
-    )
+    if verbose:
+        print("=" * 60)
+        print(f"Station commute scores  ({year_month}, {scope_label})")
+        print("=" * 60)
+        print(
+            results[["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES]]
+            .rename(columns={COLUMN_EXPECTED_COMMUTE_MINUTES: "exp_commute_min"})
+            .to_string()
+        )
 
     return results[["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES]]
 
@@ -820,4 +912,50 @@ def write_processed_daily_averages(year_month: str) -> str:
 
 
 if __name__ == "__main__":
-    calculate_commute_scores(weight_method="all_hours_weighted")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Rank Singapore MRT stations by expected commute time.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python data_driven_rankings.py\n"
+            "  python data_driven_rankings.py --display log --scope residential\n"
+            "  python data_driven_rankings.py --display minutes --scope all\n"
+            "  python data_driven_rankings.py --display linear --scope hdb"
+        ),
+    )
+    parser.add_argument(
+        "--display",
+        choices=["minutes", "linear", "log"],
+        default="log",
+        help=(
+            "minutes  — show raw expected commute time only\n"
+            "linear   — 1-10 score using z-scores of raw minutes\n"
+            "log      — 1-10 score using z-scores of log(minutes) [default]"
+        ),
+    )
+    parser.add_argument(
+        "--scope",
+        choices=["hdb", "residential", "all"],
+        default="residential",
+        help=(
+            "hdb         — HDB estate stations only\n"
+            "residential — all residential stations [default]\n"
+            "all         — every station in the travel-time dataset"
+        ),
+    )
+    args = parser.parse_args()
+
+    if args.display == "minutes":
+        calculate_data_driven_ratings(
+            weight_method="all_hours_weighted",
+            station_scope=args.scope,
+            verbose=True,
+        )
+    else:
+        calculate_commute_scores(
+            weight_method="all_hours_weighted",
+            scoring_method=args.display,
+            station_scope=args.scope,
+        )
