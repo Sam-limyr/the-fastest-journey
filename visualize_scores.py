@@ -201,14 +201,21 @@ def build_map(
     """
     print("Computing commute scores …")
     if scoring_method == "minutes":
-        # Raw minutes mode: compute color scale from the full station set so
-        # the mapping is absolute, then filter to scope for display.
+        # Raw minutes mode: fetch the full set (so centroid uses all weights),
+        # filter to scope, then compute the colour scale within the subset so
+        # the 1-10 range is always fully utilised.
         raw_df = calculate_data_driven_ratings(
             year_month=year_month,
             station_scope="all",
             verbose=False,
             weight_method=weight_method,
         )
+        if station_scope == "residential":
+            scope_stations = set(get_residential_mrt_stations())
+            raw_df = raw_df[raw_df.index.isin(scope_stations)]
+        elif station_scope == "hdb":
+            scope_stations = set(get_hdb_mrt_stations())
+            raw_df = raw_df[raw_df.index.isin(scope_stations)]
         minutes_series = raw_df[COLUMN_EXPECTED_COMMUTE_MINUTES]
         mn, mx = minutes_series.min(), minutes_series.max()
         # Map minutes linearly to 1-10 so the colour scale is still usable
@@ -219,13 +226,6 @@ def build_map(
             .clip(1, 10)
             .astype(int)
         )
-        # Filter to scope after computing the full color scale
-        if station_scope == "residential":
-            scope_stations = set(get_residential_mrt_stations())
-            scores_df = scores_df[scores_df.index.isin(scope_stations)]
-        elif station_scope == "hdb":
-            scope_stations = set(get_hdb_mrt_stations())
-            scores_df = scores_df[scores_df.index.isin(scope_stations)]
         display_label = "raw minutes"
     else:
         scores_df = calculate_commute_scores(

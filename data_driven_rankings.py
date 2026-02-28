@@ -680,68 +680,18 @@ def calculate_commute_scores(
     Returns a DataFrame indexed by station name with columns:
         commute_score, expected_commute_minutes
     """
-    # Always compute on the full station set so z-scores are absolute —
-    # not relative to the scope subset.  Scope is applied after scoring.
+    # Compute expected commute minutes for ALL stations (so the centroid uses
+    # the full travel-time matrix regardless of scope), then filter to the
+    # requested scope before z-scoring so the 1-10 range is fully utilised.
     results_all = calculate_data_driven_ratings(
         year_month=year_month,
         station_scope="all",
         verbose=False,
         weight_method=weight_method,
     )
-    minutes_all = results_all[COLUMN_EXPECTED_COMMUTE_MINUTES]
-    mean        = minutes_all.mean()
-    std         = minutes_all.std()
 
-    scope_labels = {"residential": "residential only", "hdb": "HDB only", "all": "all stations"}
-    scope_label = scope_labels.get(station_scope, station_scope)
-
-    if verbose:
-        print("=" * 60)
-        print(f"Distribution of expected commute times ({year_month}, all stations)")
-        print("(z-scores are always computed from the full station set)")
-        print("=" * 60)
-        print(f"  count  : {len(minutes_all)}")
-        print(f"  mean   : {mean:.1f} min")
-        print(f"  std    : {std:.1f} min")
-        print(f"  min    : {minutes_all.min():.1f} min  ({minutes_all.idxmin()})")
-        print(f"  25th % : {minutes_all.quantile(0.25):.1f} min")
-        print(f"  median : {minutes_all.median():.1f} min")
-        print(f"  75th % : {minutes_all.quantile(0.75):.1f} min")
-        print(f"  max    : {minutes_all.max():.1f} min  ({minutes_all.idxmax()})")
-        print()
-
-    # Score boundary table.
-    # Inverted from round(5.5 - z/SD * 4.5) = s:
-    #   boundary between score s and s-1 is where raw = s - 0.5
-    #   → z_boundary = (5.5 - (s - 0.5)) / (4.5 / SD) = (6 - s) * SD / 4.5
-    # For "linear": t = mean + z * std
-    # For "log":    t = exp(log_mean + z * log_std)
-    if scoring_method == "log":
-        scores_all = assign_commute_scores_log(minutes_all)
-        SD         = SCORE_RANGE_SD_LOG
-        log_m      = np.log(minutes_all)
-        lmean      = log_m.mean()
-        lstd       = log_m.std()
-        K          = 4.5 / SD
-        def t_boundary(s_offset: float) -> float:
-            return float(np.exp(lmean + s_offset / K * lstd))
-        method_label = f"log(minutes), SCORE_RANGE_SD_LOG = {SD}"
-    elif scoring_method == "linear":
-        scores_all = assign_commute_scores(minutes_all)
-        SD         = SCORE_RANGE_SD
-        K          = 4.5 / SD
-        def t_boundary(s_offset: float) -> float:
-            return mean + s_offset / K * std
-        method_label = f"raw minutes, SCORE_RANGE_SD = {SD}"
-    else:
-        raise ValueError(
-            f"Unknown scoring_method: {scoring_method!r}. "
-            f"Use 'log' or 'linear'."
-        )
-
-    # Add scores to the full results, then filter to the requested scope
-    results_all = results_all.copy()
-    results_all["commute_score"] = scores_all
+    # Filter to scope — expected commute minutes are the same for each station
+    # across all scopes because the computation always used all weights.
     if station_scope == "residential":
         scope_stations = set(get_residential_mrt_stations())
         results = results_all[results_all.index.isin(scope_stations)]
@@ -751,7 +701,55 @@ def calculate_commute_scores(
     else:
         results = results_all
 
-    scores = results["commute_score"]
+    minutes = results[COLUMN_EXPECTED_COMMUTE_MINUTES]
+    mean    = minutes.mean()
+    std     = minutes.std()
+
+    scope_labels = {"residential": "residential only", "hdb": "HDB only", "all": "all stations"}
+    scope_label = scope_labels.get(station_scope, station_scope)
+
+    if verbose:
+        print("=" * 60)
+        print(f"Distribution of expected commute times ({year_month}, {scope_label})")
+        print("=" * 60)
+        print(f"  count  : {len(minutes)}")
+        print(f"  mean   : {mean:.1f} min")
+        print(f"  std    : {std:.1f} min")
+        print(f"  min    : {minutes.min():.1f} min  ({minutes.idxmin()})")
+        print(f"  25th % : {minutes.quantile(0.25):.1f} min")
+        print(f"  median : {minutes.median():.1f} min")
+        print(f"  75th % : {minutes.quantile(0.75):.1f} min")
+        print(f"  max    : {minutes.max():.1f} min  ({minutes.idxmax()})")
+        print()
+
+    # Score boundary table.
+    # Inverted from round(5.5 - z/SD * 4.5) = s:
+    #   boundary between score s and s-1 is where raw = s - 0.5
+    #   → z_boundary = (5.5 - (s - 0.5)) / (4.5 / SD) = (6 - s) * SD / 4.5
+    # For "linear": t = mean + z * std
+    # For "log":    t = exp(log_mean + z * log_std)
+    if scoring_method == "log":
+        scores  = assign_commute_scores_log(minutes)
+        SD      = SCORE_RANGE_SD_LOG
+        log_m   = np.log(minutes)
+        lmean   = log_m.mean()
+        lstd    = log_m.std()
+        K       = 4.5 / SD
+        def t_boundary(s_offset: float) -> float:
+            return float(np.exp(lmean + s_offset / K * lstd))
+        method_label = f"log(minutes), SCORE_RANGE_SD_LOG = {SD}"
+    elif scoring_method == "linear":
+        scores  = assign_commute_scores(minutes)
+        SD      = SCORE_RANGE_SD
+        K       = 4.5 / SD
+        def t_boundary(s_offset: float) -> float:
+            return mean + s_offset / K * std
+        method_label = f"raw minutes, SCORE_RANGE_SD = {SD}"
+    else:
+        raise ValueError(
+            f"Unknown scoring_method: {scoring_method!r}. "
+            f"Use 'log' or 'linear'."
+        )
 
     if verbose:
         print(f"  Score boundaries  ({method_label})")
@@ -771,6 +769,8 @@ def calculate_commute_scores(
         print()
 
     # Full station listing (scoped)
+    results = results.copy()
+    results["commute_score"] = scores
     results = results.sort_values(
         ["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES],
         ascending=[False, True],
