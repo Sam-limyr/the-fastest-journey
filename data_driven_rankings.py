@@ -233,6 +233,85 @@ def derive_work_destination_weights(
 
 
 # ---------------------------------------------------------------------------
+# Comprehensive (all-hours, all-day-type) weight derivation
+# ---------------------------------------------------------------------------
+
+COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT = "weighted_all_hours_tap_out"
+
+
+def get_all_hours_weighted_aggregates(
+    df: pd.DataFrame,
+    weekday_count: float,
+    non_weekday_count: float,
+) -> pd.DataFrame:
+    """
+    Combine weekday and non-weekday tap-out volumes across ALL hours into a
+    single per-station score, weighted proportionally by day counts.
+
+    For each station:
+        score = (sum_hours(daily_avg_tap_out_weekday)    × weekday_count)
+              + (sum_hours(daily_avg_tap_out_nonweekday) × non_weekday_count)
+
+    This produces a quantity proportional to the monthly total tap-outs,
+    so stations that serve large weekend / holiday crowds contribute to
+    the centroid alongside weekday workers.
+
+    Returns a DataFrame sorted by the aggregate column descending, with columns:
+        STATION_NAME, COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT
+    """
+    day_multipliers = {WEEKDAY: weekday_count, NOT_WEEKDAY: non_weekday_count}
+    df = df.copy()
+    df["_w"] = df.apply(
+        lambda row: row[COLUMN_DAILY_AVG_TAP_OUT] * day_multipliers[row[DAY_TYPE]], axis=1
+    )
+    return (
+        df.groupby(STATION_NAME)["_w"]
+        .sum()
+        .reset_index()
+        .rename(columns={"_w": COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT})
+        .sort_values(COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT, ascending=False)
+    )
+
+
+def derive_comprehensive_destination_weights(
+    all_hours_df: pd.DataFrame,
+    travel_station_names: set,
+) -> dict:
+    """
+    Convert all-hours weighted tap-out scores into normalized destination
+    weights for the scoring calculation.
+
+    Mirrors derive_work_destination_weights but operates on the full-day,
+    day-count-weighted aggregate produced by get_all_hours_weighted_aggregates.
+
+    Stations absent from the travel-time dataset are dropped; the remaining
+    weights are renormalized to sum to 1.0.
+
+    Returns {station_name: weight_as_decimal}.
+    """
+    volume_col = COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT
+    in_travel = all_hours_df[STATION_NAME].isin(travel_station_names)
+    filtered  = all_hours_df[in_travel]
+    dropped   = all_hours_df[~in_travel]
+
+    if not dropped.empty:
+        total       = all_hours_df[volume_col].sum()
+        dropped_vol = dropped[volume_col].sum()
+        print(
+            f"[!] {len(dropped)} volume stations have no travel-time data "
+            f"and are excluded ({dropped_vol / total * 100:.1f}% of "
+            f"all-hours tap-out volume)."
+        )
+        print(f"    Excluded: {sorted(dropped[STATION_NAME].tolist())}\n")
+
+    remaining_total = filtered[volume_col].sum()
+    return {
+        row[STATION_NAME]: row[volume_col] / remaining_total
+        for _, row in filtered.iterrows()
+    }
+
+
+# ---------------------------------------------------------------------------
 # Commute penalty function
 # ---------------------------------------------------------------------------
 
@@ -292,6 +371,7 @@ def calculate_data_driven_ratings(
     year_month: str = ANALYSIS_MONTH,
     residential_only: bool = True,
     verbose: bool = True,
+    weight_method: str = "morning_peak",
 ) -> pd.DataFrame:
     """
     Compute and (optionally) print station rankings by expected commute time.
@@ -308,6 +388,14 @@ def calculate_data_driven_ratings(
     verbose : bool
         If True (default), print all diagnostic and rankings tables.
         Set to False to suppress output and just get the returned DataFrame.
+    weight_method : str
+        How to derive destination weights from passenger volume data.
+        "morning_peak"      — weekday morning (7–9 am) tap-out volumes only
+                              (current default; focuses on work commuters).
+        "all_hours_weighted" — all-hours tap-out across both weekday and
+                              non-weekday rows, weighted by day counts from
+                              _MONTH_NORMALIZATION_FACTORS; captures shopping,
+                              leisure, and mixed-use traffic as well.
 
     Reads from the pre-processed daily-average CSV for the given month.
     Run write_processed_daily_averages(year_month) first if the file does not exist.
@@ -318,44 +406,82 @@ def calculate_data_driven_ratings(
     # 1. Load the pre-processed daily-average data (station names already resolved)
     volume_df = pd.read_csv(processed_path)
 
-    # 2. Aggregate daily averages across the morning window
-    morning_df = get_weekday_morning_aggregates(volume_df)
-
-    morning_window = (
-        f"{WEEKDAY_MORNING_START_HOUR}am"
-        f"–{WEEKDAY_MORNING_END_HOUR}am"
-        f" weekday daily avg, {year_month}"
-    )
-
-    # 3. Print diagnostics: where people work and where they live
-    if verbose:
-        print("=" * 60)
-        print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  ({morning_window})")
-        print("Tap-OUT = people arriving at work / school")
-        print("=" * 60)
-        print(
-            morning_df[[STATION_NAME, COLUMN_MORNING_TAP_OUT]]
-            .head(DIAGNOSTIC_TOP_N)
-            .to_string(index=False)
-        )
-
-        print()
-        print("=" * 60)
-        print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  ({morning_window})")
-        print("Tap-IN = people leaving home")
-        print("=" * 60)
-        print(
-            morning_df[[STATION_NAME, COLUMN_MORNING_TAP_IN]]
-            .sort_values(COLUMN_MORNING_TAP_IN, ascending=False)
-            .head(DIAGNOSTIC_TOP_N)
-            .to_string(index=False)
-        )
-        print()
-
-    # 4. Derive destination weights from tap-out volumes
+    # 2+4. Derive destination weights using the selected method
     travel_times = read_travel_time_data()
     travel_station_names = set(travel_times[COLUMN_FROM_STATION_NAME].unique())
-    work_weights = derive_work_destination_weights(morning_df, travel_station_names)
+
+    if weight_method == "morning_peak":
+        # Weekday morning tap-out volumes → work-destination weights
+        morning_df = get_weekday_morning_aggregates(volume_df)
+        morning_window = (
+            f"{WEEKDAY_MORNING_START_HOUR}am"
+            f"–{WEEKDAY_MORNING_END_HOUR}am"
+            f" weekday daily avg, {year_month}"
+        )
+        if verbose:
+            print("=" * 60)
+            print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  ({morning_window})")
+            print("Tap-OUT = people arriving at work / school")
+            print("=" * 60)
+            print(
+                morning_df[[STATION_NAME, COLUMN_MORNING_TAP_OUT]]
+                .head(DIAGNOSTIC_TOP_N)
+                .to_string(index=False)
+            )
+            print()
+            print("=" * 60)
+            print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  ({morning_window})")
+            print("Tap-IN = people leaving home")
+            print("=" * 60)
+            print(
+                morning_df[[STATION_NAME, COLUMN_MORNING_TAP_IN]]
+                .sort_values(COLUMN_MORNING_TAP_IN, ascending=False)
+                .head(DIAGNOSTIC_TOP_N)
+                .to_string(index=False)
+            )
+            print()
+        work_weights = derive_work_destination_weights(morning_df, travel_station_names)
+        weight_label = (
+            f"weekday morning tap-outs "
+            f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month}"
+        )
+
+    elif weight_method == "all_hours_weighted":
+        # All-hours tap-out across both day types, weighted by day counts
+        weekday_count, non_weekday_count = get_normalization_factors(year_month)
+        all_hours_df = get_all_hours_weighted_aggregates(
+            volume_df, weekday_count, non_weekday_count
+        )
+        if verbose:
+            print("=" * 60)
+            print(
+                f"Top {DIAGNOSTIC_TOP_N} Stations by Comprehensive Tap-Out Weight"
+                f"  ({year_month})"
+            )
+            print(
+                f"All hours  |  weekday × {weekday_count:.0f} days"
+                f" + non-weekday × {non_weekday_count:.0f} days"
+            )
+            print("=" * 60)
+            print(
+                all_hours_df[[STATION_NAME, COLUMN_WEIGHTED_ALL_HOURS_TAP_OUT]]
+                .head(DIAGNOSTIC_TOP_N)
+                .to_string(index=False)
+            )
+            print()
+        work_weights = derive_comprehensive_destination_weights(
+            all_hours_df, travel_station_names
+        )
+        weight_label = (
+            f"all-hours weighted tap-outs "
+            f"(wd×{weekday_count:.0f} + nwd×{non_weekday_count:.0f}), {year_month}"
+        )
+
+    else:
+        raise ValueError(
+            f"Unknown weight_method: {weight_method!r}. "
+            f"Use 'morning_peak' or 'all_hours_weighted'."
+        )
 
     # 5. Filter travel-time matrix to the stations we have weights for,
     #    and optionally restrict destinations to HDB residential stations only
@@ -402,8 +528,7 @@ def calculate_data_driven_ratings(
               f"<{COMMUTE_BAND_HAPPY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_HAPPY}, "
               f"{COMMUTE_BAND_HAPPY_LIMIT:.0f}–{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_OKAY}, "
               f">{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_UNHAPPY})")
-        print(f"(destination weights: weekday daily avg tap-outs, "
-              f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month})")
+        print(f"(destination weights: {weight_label})")
         print("Lower score = better — non-linear, so long commutes are disproportionately penalised")
         print()
         print(f"  {'min':>4}  {'multiplier':>10}  band")
@@ -464,6 +589,7 @@ def assign_commute_scores(commute_minutes: pd.Series) -> pd.Series:
 def calculate_commute_scores(
     year_month: str = ANALYSIS_MONTH,
     residential_only: bool = True,
+    weight_method: str = "morning_peak",
 ) -> pd.DataFrame:
     """
     Assign each MRT station a 1-10 commute score based on its expected
@@ -476,6 +602,10 @@ def calculate_commute_scores(
     residential_only : bool
         If True (default), score only residential stations.
         If False, score every station in the travel-time dataset.
+    weight_method : str
+        Passed through to calculate_data_driven_ratings.
+        "morning_peak"       — weekday morning tap-out weights (default).
+        "all_hours_weighted" — full-day, day-count-weighted tap-out weights.
 
     Prints:
       - Distribution summary (mean, std, min/max with station names)
@@ -486,7 +616,10 @@ def calculate_commute_scores(
         commute_score, expected_commute_minutes
     """
     results  = calculate_data_driven_ratings(
-        year_month=year_month, residential_only=residential_only, verbose=False
+        year_month=year_month,
+        residential_only=residential_only,
+        verbose=False,
+        weight_method=weight_method,
     )
     minutes  = results[COLUMN_EXPECTED_COMMUTE_MINUTES]
     mean     = minutes.mean()
@@ -687,4 +820,4 @@ def write_processed_daily_averages(year_month: str) -> str:
 
 
 if __name__ == "__main__":
-    calculate_commute_scores()
+    calculate_commute_scores(weight_method="all_hours_weighted")
