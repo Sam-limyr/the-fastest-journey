@@ -8,7 +8,10 @@
       "Bash(.venv/Scripts/python data_driven_rankings.py)",
       "Bash(.venv/Scripts/python -:*)",
       "Bash(.venv/Scripts/python -c \":*)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(.venv/Scripts/python -c \"import folium; print\\(''folium ok'', folium.__version__\\)\")",
+      "Bash(.venv/Scripts/pip install folium)",
+      "Bash(.venv/Scripts/python scratch.py)"
     ]
   }
 }
