@@ -27,6 +27,8 @@ from data_driven_rankings import (
     calculate_data_driven_ratings,
     ANALYSIS_MONTH,
     COLUMN_EXPECTED_COMMUTE_MINUTES,
+    get_residential_mrt_stations,
+    get_hdb_mrt_stations,
 )
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -199,10 +201,11 @@ def build_map(
     """
     print("Computing commute scores …")
     if scoring_method == "minutes":
-        # Raw minutes mode: use the penalty rankings directly, no 1-10 scale
+        # Raw minutes mode: compute color scale from the full station set so
+        # the mapping is absolute, then filter to scope for display.
         raw_df = calculate_data_driven_ratings(
             year_month=year_month,
-            station_scope=station_scope,
+            station_scope="all",
             verbose=False,
             weight_method=weight_method,
         )
@@ -216,6 +219,13 @@ def build_map(
             .clip(1, 10)
             .astype(int)
         )
+        # Filter to scope after computing the full color scale
+        if station_scope == "residential":
+            scope_stations = set(get_residential_mrt_stations())
+            scores_df = scores_df[scores_df.index.isin(scope_stations)]
+        elif station_scope == "hdb":
+            scope_stations = set(get_hdb_mrt_stations())
+            scores_df = scores_df[scores_df.index.isin(scope_stations)]
         display_label = "raw minutes"
     else:
         scores_df = calculate_commute_scores(

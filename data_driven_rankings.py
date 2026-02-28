@@ -486,22 +486,12 @@ def calculate_data_driven_ratings(
             f"Use 'morning_peak' or 'all_hours_weighted'."
         )
 
-    # 5. Filter travel-time matrix to the stations we have weights for,
-    #    and optionally restrict destinations to a station scope subset
+    # 5. Filter travel-time matrix to the stations we have weights for.
+    #    The scope filter is applied to the output DataFrame after aggregation
+    #    so that weights/scores are always computed across the full station set.
     travel_times = travel_times[
         travel_times[COLUMN_FROM_STATION_NAME].isin(work_weights)
     ]
-    if station_scope == "residential":
-        scope_stations = set(get_residential_mrt_stations())
-        travel_times = travel_times[
-            travel_times[COLUMN_TO_STATION_NAME].isin(scope_stations)
-        ]
-    elif station_scope == "hdb":
-        scope_stations = set(get_hdb_mrt_stations())
-        travel_times = travel_times[
-            travel_times[COLUMN_TO_STATION_NAME].isin(scope_stations)
-        ]
-    # else station_scope == "all" — no filter
 
     # 6. Compute both raw and penalized weighted trip durations
     travel_times = travel_times.copy()
@@ -529,6 +519,16 @@ def calculate_data_driven_ratings(
         .sort_values(COLUMN_COMMUTE_PENALTY_SCORE, ascending=True)
     )
     results.index.name = "residential_station"
+
+    # Apply station_scope filter to the output — the computation always used
+    # all stations so scores are absolute, not relative to the subset.
+    if station_scope == "residential":
+        scope_stations = set(get_residential_mrt_stations())
+        results = results[results.index.isin(scope_stations)]
+    elif station_scope == "hdb":
+        scope_stations = set(get_hdb_mrt_stations())
+        results = results[results.index.isin(scope_stations)]
+    # else station_scope == "all" — no filter
 
     if verbose:
         print("=" * 60)
@@ -680,31 +680,34 @@ def calculate_commute_scores(
     Returns a DataFrame indexed by station name with columns:
         commute_score, expected_commute_minutes
     """
-    results  = calculate_data_driven_ratings(
+    # Always compute on the full station set so z-scores are absolute —
+    # not relative to the scope subset.  Scope is applied after scoring.
+    results_all = calculate_data_driven_ratings(
         year_month=year_month,
-        station_scope=station_scope,
+        station_scope="all",
         verbose=False,
         weight_method=weight_method,
     )
-    minutes  = results[COLUMN_EXPECTED_COMMUTE_MINUTES]
-    mean     = minutes.mean()
-    std      = minutes.std()
+    minutes_all = results_all[COLUMN_EXPECTED_COMMUTE_MINUTES]
+    mean        = minutes_all.mean()
+    std         = minutes_all.std()
 
     scope_labels = {"residential": "residential only", "hdb": "HDB only", "all": "all stations"}
     scope_label = scope_labels.get(station_scope, station_scope)
 
     if verbose:
         print("=" * 60)
-        print(f"Distribution of expected commute times ({year_month}, {scope_label})")
+        print(f"Distribution of expected commute times ({year_month}, all stations)")
+        print("(z-scores are always computed from the full station set)")
         print("=" * 60)
-        print(f"  count  : {len(minutes)}")
+        print(f"  count  : {len(minutes_all)}")
         print(f"  mean   : {mean:.1f} min")
         print(f"  std    : {std:.1f} min")
-        print(f"  min    : {minutes.min():.1f} min  ({minutes.idxmin()})")
-        print(f"  25th % : {minutes.quantile(0.25):.1f} min")
-        print(f"  median : {minutes.median():.1f} min")
-        print(f"  75th % : {minutes.quantile(0.75):.1f} min")
-        print(f"  max    : {minutes.max():.1f} min  ({minutes.idxmax()})")
+        print(f"  min    : {minutes_all.min():.1f} min  ({minutes_all.idxmin()})")
+        print(f"  25th % : {minutes_all.quantile(0.25):.1f} min")
+        print(f"  median : {minutes_all.median():.1f} min")
+        print(f"  75th % : {minutes_all.quantile(0.75):.1f} min")
+        print(f"  max    : {minutes_all.max():.1f} min  ({minutes_all.idxmax()})")
         print()
 
     # Score boundary table.
@@ -714,19 +717,19 @@ def calculate_commute_scores(
     # For "linear": t = mean + z * std
     # For "log":    t = exp(log_mean + z * log_std)
     if scoring_method == "log":
-        scores  = assign_commute_scores_log(minutes)
-        SD      = SCORE_RANGE_SD_LOG
-        log_m   = np.log(minutes)
-        lmean   = log_m.mean()
-        lstd    = log_m.std()
-        K       = 4.5 / SD
+        scores_all = assign_commute_scores_log(minutes_all)
+        SD         = SCORE_RANGE_SD_LOG
+        log_m      = np.log(minutes_all)
+        lmean      = log_m.mean()
+        lstd       = log_m.std()
+        K          = 4.5 / SD
         def t_boundary(s_offset: float) -> float:
             return float(np.exp(lmean + s_offset / K * lstd))
         method_label = f"log(minutes), SCORE_RANGE_SD_LOG = {SD}"
     elif scoring_method == "linear":
-        scores  = assign_commute_scores(minutes)
-        SD      = SCORE_RANGE_SD
-        K       = 4.5 / SD
+        scores_all = assign_commute_scores(minutes_all)
+        SD         = SCORE_RANGE_SD
+        K          = 4.5 / SD
         def t_boundary(s_offset: float) -> float:
             return mean + s_offset / K * std
         method_label = f"raw minutes, SCORE_RANGE_SD = {SD}"
@@ -735,6 +738,20 @@ def calculate_commute_scores(
             f"Unknown scoring_method: {scoring_method!r}. "
             f"Use 'log' or 'linear'."
         )
+
+    # Add scores to the full results, then filter to the requested scope
+    results_all = results_all.copy()
+    results_all["commute_score"] = scores_all
+    if station_scope == "residential":
+        scope_stations = set(get_residential_mrt_stations())
+        results = results_all[results_all.index.isin(scope_stations)]
+    elif station_scope == "hdb":
+        scope_stations = set(get_hdb_mrt_stations())
+        results = results_all[results_all.index.isin(scope_stations)]
+    else:
+        results = results_all
+
+    scores = results["commute_score"]
 
     if verbose:
         print(f"  Score boundaries  ({method_label})")
@@ -753,9 +770,7 @@ def calculate_commute_scores(
             print(f"  {s:>5}  {range_str:>22}  {n:>3}")
         print()
 
-    # Full station listing
-    results = results.copy()
-    results["commute_score"] = scores
+    # Full station listing (scoped)
     results = results.sort_values(
         ["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES],
         ascending=[False, True],
