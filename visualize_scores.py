@@ -116,7 +116,7 @@ def _svy21_to_wgs84(N: float, E: float) -> tuple[float, float]:
 # persisted into the local cache so they survive across runs.
 _MANUAL_COORDS: dict[str, tuple[float, float]] = {
     # New TEL station not yet in the DataMall shapefile
-    "Gardens By The Bay": (1.27833, 103.86806),  # 1°16′42″N 103°52′05″E
+    "Gardens by the Bay": (1.27833, 103.86806),  # 1°16′42″N 103°52′05″E
 }
 
 
