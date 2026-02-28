@@ -12,6 +12,7 @@ Run from the repo root:
 from __future__ import annotations
 
 import io
+import json
 import math
 import os
 import sys
@@ -32,7 +33,8 @@ from data_driven_rankings import (
 )
 
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_HTML = os.path.join(_REPO_ROOT, "mrt_commute_scores.html")
+OUTPUT_HTML       = os.path.join(_REPO_ROOT, "mrt_commute_scores.html")
+COORDS_CACHE_PATH = os.path.join(_REPO_ROOT, "station_coords_cache.json")
 
 API_KEY = "RomoaQ6ATPuLJ2PyRmXi2g=="
 
@@ -106,16 +108,44 @@ def _svy21_to_wgs84(N: float, E: float) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Fetch station coordinates from LTA DataMall
+# Manual coordinate overrides for stations absent from the DataMall shapefile
+# ---------------------------------------------------------------------------
+
+# Stations that are missing from (or misnamed in) the LTA shapefile can be
+# added here.  These are applied on top of the shapefile data and also
+# persisted into the local cache so they survive across runs.
+_MANUAL_COORDS: dict[str, tuple[float, float]] = {
+    # New TEL station not yet in the DataMall shapefile
+    "Gardens By The Bay": (1.27833, 103.86806),  # 1°16′42″N 103°52′05″E
+}
+
+
+# ---------------------------------------------------------------------------
+# Fetch station coordinates from LTA DataMall (with local cache)
 # ---------------------------------------------------------------------------
 
 def fetch_station_coords() -> dict[str, tuple[float, float]]:
     """
-    Download the LTA GeospatialWholeIsland TrainStation shapefile and return
-    a dict mapping station name → (lat, lng) in WGS84.
+    Return a dict mapping station name → (lat, lng) in WGS84.
 
-    Station polygon centroids are computed from the bounding-box midpoints.
+    On the first call the LTA GeospatialWholeIsland TrainStation shapefile is
+    downloaded, parsed, and saved to COORDS_CACHE_PATH as JSON.  Subsequent
+    calls load directly from the cache — delete the file to force a refresh.
+
+    Manual overrides in _MANUAL_COORDS are always applied (and saved into the
+    cache) so stations absent from the shapefile are still available.
     """
+    if os.path.exists(COORDS_CACHE_PATH):
+        print(f"Loading station coordinates from cache: {COORDS_CACHE_PATH}")
+        with open(COORDS_CACHE_PATH, encoding="utf-8") as f:
+            raw = json.load(f)
+        # JSON stores lists; convert back to tuples
+        coords = {name: tuple(latlon) for name, latlon in raw.items()}
+        # Always apply manual overrides in case the cache pre-dates them
+        coords.update(_MANUAL_COORDS)
+        return coords
+
+    print("Fetching station coordinates from LTA DataMall …")
     import shapefile  # pyshp
 
     headers = {"AccountKey": API_KEY, "accept": "application/json"}
@@ -144,6 +174,12 @@ def fetch_station_coords() -> dict[str, tuple[float, float]]:
         cx = (bbox[0] + bbox[2]) / 2
         cy = (bbox[1] + bbox[3]) / 2
         coords[name] = _svy21_to_wgs84(cy, cx)
+
+    coords.update(_MANUAL_COORDS)
+
+    with open(COORDS_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(coords, f, indent=2)
+    print(f"Coordinates cached to: {COORDS_CACHE_PATH}")
 
     return coords
 
@@ -237,7 +273,6 @@ def build_map(
         )
         display_label = f"{scoring_method} score"
 
-    print("\nFetching station coordinates from LTA DataMall …")
     coords = fetch_station_coords()
 
     missing = [s for s in scores_df.index if s not in coords]
