@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 visualize_scores.py
 
@@ -271,6 +272,14 @@ def build_map(
         ).add_to(m)
 
         # Score number centred on the circle
+        tooltip_text = (
+            f"<b>{station}</b><br>"
+            + (
+                f"Expected commute: <b>{minutes:.0f} min</b>"
+                if scoring_method == "minutes"
+                else f"Score: <b>{score}/10</b><br>Expected commute: {minutes:.0f} min"
+            )
+        )
         folium.Marker(
             location=[lat, lng],
             icon=folium.DivIcon(
@@ -283,12 +292,12 @@ def build_map(
                     f'display:flex;align-items:center;justify-content:center;'
                     f'font-family:Arial,sans-serif;font-size:11px;font-weight:bold;'
                     f'color:{fg};'
-                    f'pointer-events:none;'
                     f'">{score}</div>'
                 ),
                 icon_size=(22, 22),
                 icon_anchor=(11, 11),
             ),
+            tooltip=folium.Tooltip(tooltip_text, sticky=False),
         ).add_to(m)
 
     # -----------------------------------------------------------------------

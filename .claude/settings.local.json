@@ -11,7 +11,10 @@
       "Bash(python -c \":*)",
       "Bash(.venv/Scripts/python -c \"import folium; print\\(''folium ok'', folium.__version__\\)\")",
       "Bash(.venv/Scripts/pip install folium)",
-      "Bash(.venv/Scripts/python scratch.py)"
+      "Bash(.venv/Scripts/python scratch.py)",
+      "Bash(bash analyse.sh --display log --scope all)",
+      "Bash(.venv/Scripts/python analyse.py --display log --scope all)",
+      "Bash(.venv/Scripts/python analyse.py --help)"
     ]
   }
 }
