@@ -68,7 +68,7 @@ WEEKDAY_MORNING_START_HOUR = 7   # 7am
 WEEKDAY_MORNING_END_HOUR   = 10  # up to but not including 10am (i.e. 7, 8, 9)
 
 # Month used for analysis (must have an entry in _MONTH_NORMALIZATION_FACTORS)
-ANALYSIS_MONTH = "202506"
+ANALYSIS_MONTH = "202601"
 
 # Column names in the processed (normalized) daily-average CSV
 COLUMN_DAILY_AVG_TAP_IN  = "daily_avg_tap_in"
@@ -291,10 +291,10 @@ def commute_penalty(minutes: float) -> float:
 def calculate_data_driven_ratings(
     year_month: str = ANALYSIS_MONTH,
     residential_only: bool = True,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Main entry point.  Prints diagnostic tables and returns a DataFrame of
-    stations ranked by expected commute time (ascending).
+    Compute and (optionally) print station rankings by expected commute time.
 
     Parameters
     ----------
@@ -302,9 +302,12 @@ def calculate_data_driven_ratings(
         Month to analyse, e.g. "202506".  A processed daily-average CSV for
         this month must exist in PROCESSED_DATA_DIR.
     residential_only : bool
-        If True  (default), only HDB-served stations appear in the rankings.
+        If True  (default), only residential stations appear in the rankings.
         If False, every station in the travel-time dataset is ranked, giving
         a pure "centrality" score regardless of housing type.
+    verbose : bool
+        If True (default), print all diagnostic and rankings tables.
+        Set to False to suppress output and just get the returned DataFrame.
 
     Reads from the pre-processed daily-average CSV for the given month.
     Run write_processed_daily_averages(year_month) first if the file does not exist.
@@ -325,28 +328,29 @@ def calculate_data_driven_ratings(
     )
 
     # 3. Print diagnostics: where people work and where they live
-    print("=" * 60)
-    print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  ({morning_window})")
-    print("Tap-OUT = people arriving at work / school")
-    print("=" * 60)
-    print(
-        morning_df[[STATION_NAME, COLUMN_MORNING_TAP_OUT]]
-        .head(DIAGNOSTIC_TOP_N)
-        .to_string(index=False)
-    )
+    if verbose:
+        print("=" * 60)
+        print(f"Top {DIAGNOSTIC_TOP_N} Work Destinations  ({morning_window})")
+        print("Tap-OUT = people arriving at work / school")
+        print("=" * 60)
+        print(
+            morning_df[[STATION_NAME, COLUMN_MORNING_TAP_OUT]]
+            .head(DIAGNOSTIC_TOP_N)
+            .to_string(index=False)
+        )
 
-    print()
-    print("=" * 60)
-    print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  ({morning_window})")
-    print("Tap-IN = people leaving home")
-    print("=" * 60)
-    print(
-        morning_df[[STATION_NAME, COLUMN_MORNING_TAP_IN]]
-        .sort_values(COLUMN_MORNING_TAP_IN, ascending=False)
-        .head(DIAGNOSTIC_TOP_N)
-        .to_string(index=False)
-    )
-    print()
+        print()
+        print("=" * 60)
+        print(f"Top {DIAGNOSTIC_TOP_N} Residential Origins  ({morning_window})")
+        print("Tap-IN = people leaving home")
+        print("=" * 60)
+        print(
+            morning_df[[STATION_NAME, COLUMN_MORNING_TAP_IN]]
+            .sort_values(COLUMN_MORNING_TAP_IN, ascending=False)
+            .head(DIAGNOSTIC_TOP_N)
+            .to_string(index=False)
+        )
+        print()
 
     # 4. Derive destination weights from tap-out volumes
     travel_times = read_travel_time_data()
@@ -391,36 +395,158 @@ def calculate_data_driven_ratings(
     )
     results.index.name = "residential_station"
 
-    print("=" * 60)
-    print("Residential Station Rankings — Penalized Commute Score")
-    print(f"(piecewise-exponential penalty: "
-          f"<{COMMUTE_BAND_HAPPY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_HAPPY}, "
-          f"{COMMUTE_BAND_HAPPY_LIMIT:.0f}–{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_OKAY}, "
-          f">{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_UNHAPPY})")
-    print(f"(destination weights: weekday daily avg tap-outs, "
-          f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month})")
-    print("Lower score = better — non-linear, so long commutes are disproportionately penalised")
-    print()
-    print(f"  {'min':>4}  {'multiplier':>10}  band")
-    print(f"  {'----':>4}  {'----------':>10}  ----")
-    for _t in [10, 20, 30, 40, 45, 55, 60]:
-        _mult = commute_penalty(_t) / _t
-        if _t == COMMUTE_BAND_HAPPY_LIMIT:
-            _band = f"happy → okay boundary"
-        elif _t == COMMUTE_BAND_OKAY_LIMIT:
-            _band = f"okay → unhappy boundary"
-        elif _t < COMMUTE_BAND_HAPPY_LIMIT:
-            _band = "happy"
-        elif _t < COMMUTE_BAND_OKAY_LIMIT:
-            _band = "okay"
-        else:
-            _band = "unhappy"
-        print(f"  {_t:>4}  {_mult:>10.3f}x  {_band}")
-    print()
-    print("=" * 60)
-    print(results.to_string())
+    if verbose:
+        print("=" * 60)
+        print("Residential Station Rankings — Penalized Commute Score")
+        print(f"(piecewise-exponential penalty: "
+              f"<{COMMUTE_BAND_HAPPY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_HAPPY}, "
+              f"{COMMUTE_BAND_HAPPY_LIMIT:.0f}–{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_OKAY}, "
+              f">{COMMUTE_BAND_OKAY_LIMIT:.0f}min exp={COMMUTE_EXPONENT_UNHAPPY})")
+        print(f"(destination weights: weekday daily avg tap-outs, "
+              f"{WEEKDAY_MORNING_START_HOUR}am–{WEEKDAY_MORNING_END_HOUR}am, {year_month})")
+        print("Lower score = better — non-linear, so long commutes are disproportionately penalised")
+        print()
+        print(f"  {'min':>4}  {'multiplier':>10}  band")
+        print(f"  {'----':>4}  {'----------':>10}  ----")
+        for _t in [10, 20, 30, 40, 45, 55, 60]:
+            _mult = commute_penalty(_t) / _t
+            if _t == COMMUTE_BAND_HAPPY_LIMIT:
+                _band = f"happy → okay boundary"
+            elif _t == COMMUTE_BAND_OKAY_LIMIT:
+                _band = f"okay → unhappy boundary"
+            elif _t < COMMUTE_BAND_HAPPY_LIMIT:
+                _band = "happy"
+            elif _t < COMMUTE_BAND_OKAY_LIMIT:
+                _band = "okay"
+            else:
+                _band = "unhappy"
+            print(f"  {_t:>4}  {_mult:>10.3f}x  {_band}")
+        print()
+        print("=" * 60)
+        print(results.to_string())
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Commute scoring (1-10)
+# ---------------------------------------------------------------------------
+
+# How many standard deviations from the mean map to the edge of the 1-10
+# scale (before clipping).  With ~100 stations:
+#   SCORE_RANGE_SD = 2.5  →  P(|z| > 2.22) ≈ 2.6%  →  ~1-3 stations at each extreme
+#   SCORE_RANGE_SD = 2.0  →  P(|z| > 2.0)  ≈ 4.6%  →  ~4-5 stations at each extreme
+# Increase to push more stations toward the 5-6 midpoint; decrease to spread them out.
+SCORE_RANGE_SD = 2.5
+
+
+def assign_commute_scores(commute_minutes: pd.Series) -> pd.Series:
+    """
+    Map expected commute times (raw minutes) to integer 1-10 scores using a
+    normal-distribution-based formula.  Shorter commutes → higher scores.
+
+    Formula:
+        z     = (minutes - mean) / std
+        score = clip(round(5.5 - z / SCORE_RANGE_SD * 4.5), 1, 10)
+
+    At z = 0 (exactly average commute): raw score = 5.5, rounds to 5 or 6.
+    At z = -SCORE_RANGE_SD (SCORE_RANGE_SD σ below mean): raw score = 10.
+    At z = +SCORE_RANGE_SD (SCORE_RANGE_SD σ above mean):  raw score = 1.
+    Stations beyond ±SCORE_RANGE_SD are clipped to 1 or 10.
+    """
+    mean = commute_minutes.mean()
+    std  = commute_minutes.std()
+    z    = (commute_minutes - mean) / std
+    raw  = 5.5 - z / SCORE_RANGE_SD * 4.5
+    return raw.clip(1, 10).round().astype(int)
+
+
+def calculate_commute_scores(
+    year_month: str = ANALYSIS_MONTH,
+    residential_only: bool = True,
+) -> pd.DataFrame:
+    """
+    Assign each MRT station a 1-10 commute score based on its expected
+    commute time in raw minutes (not the penalty score).
+
+    Parameters
+    ----------
+    year_month : str
+        Month to analyse.
+    residential_only : bool
+        If True (default), score only residential stations.
+        If False, score every station in the travel-time dataset.
+
+    Prints:
+      - Distribution summary (mean, std, min/max with station names)
+      - Score boundary table (minute range → score, with station count per band)
+      - Full station listing sorted by score descending (ties broken by minutes)
+
+    Returns a DataFrame indexed by station name with columns:
+        commute_score, expected_commute_minutes
+    """
+    results  = calculate_data_driven_ratings(
+        year_month=year_month, residential_only=residential_only, verbose=False
+    )
+    minutes  = results[COLUMN_EXPECTED_COMMUTE_MINUTES]
+    mean     = minutes.mean()
+    std      = minutes.std()
+
+    scope = "residential only" if residential_only else "all stations"
+    print("=" * 60)
+    print(f"Distribution of expected commute times ({year_month}, {scope})")
+    print("=" * 60)
+    print(f"  count  : {len(minutes)}")
+    print(f"  mean   : {mean:.1f} min")
+    print(f"  std    : {std:.1f} min")
+    print(f"  min    : {minutes.min():.1f} min  ({minutes.idxmin()})")
+    print(f"  25th % : {minutes.quantile(0.25):.1f} min")
+    print(f"  median : {minutes.median():.1f} min")
+    print(f"  75th % : {minutes.quantile(0.75):.1f} min")
+    print(f"  max    : {minutes.max():.1f} min  ({minutes.idxmax()})")
+    print()
+
+    # Score boundary table.
+    # score s maps to t in (t_boundary(s+1), t_boundary(s)]  where
+    #   t_boundary(s) = mean + (6 - s) * SCORE_RANGE_SD / 4.5 * std
+    # (derived from inverting the round(5.5 - z/SD * 4.5) formula)
+    scores = assign_commute_scores(minutes)
+    K      = 4.5 / SCORE_RANGE_SD
+
+    print(f"  Score boundaries  (SCORE_RANGE_SD = {SCORE_RANGE_SD})")
+    print(f"  {'score':>5}  {'commute range':>22}  {'n':>3}")
+    print(f"  {'-----':>5}  {'--------------------':>22}  {'--':>3}")
+    for s in range(10, 0, -1):
+        t_upper = mean + (6 - s) / K * std         # upper t bound (inclusive) for score s
+        t_lower = mean + (5 - s) / K * std         # lower t bound (exclusive) for score s
+        if s == 10:
+            range_str = f"<= {t_upper:.1f} min"
+        elif s == 1:
+            range_str = f">  {t_lower:.1f} min"
+        else:
+            range_str = f"{t_lower:.1f} – {t_upper:.1f} min"
+        n = (scores == s).sum()
+        print(f"  {s:>5}  {range_str:>22}  {n:>3}")
+    print()
+
+    # Full station listing
+    results = results.copy()
+    results["commute_score"] = scores
+    results = results.sort_values(
+        ["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES],
+        ascending=[False, True],
+    )
+
+    print("=" * 60)
+    print(f"Station commute scores  ({year_month}, {scope})")
+    print("=" * 60)
+    print(
+        results[["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES]]
+        .rename(columns={COLUMN_EXPECTED_COMMUTE_MINUTES: "exp_commute_min"})
+        .to_string()
+    )
+
+    return results[["commute_score", COLUMN_EXPECTED_COMMUTE_MINUTES]]
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +687,4 @@ def write_processed_daily_averages(year_month: str) -> str:
 
 
 if __name__ == "__main__":
-    write_processed_daily_averages("202506")
-    print()
-    calculate_data_driven_ratings()
+    calculate_commute_scores()
