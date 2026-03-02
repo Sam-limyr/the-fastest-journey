@@ -414,7 +414,7 @@ def build_map(
         # pct_low  = % of stations with strictly longer commute than worst in group
         # pct_high = % of stations with commute >= best in group  (capped at 100)
         pct_lo = int(100 * (all_minutes > mx_m).sum() / n_total)
-        pct_hi = min(100, math.ceil(100 * (all_minutes >= mn_m).sum() / n_total))
+        pct_hi = int(100 * (all_minutes >= mn_m).sum() / n_total)
         score_meta[s] = {
             "pct_low":  pct_lo,
             "pct_high": pct_hi,
