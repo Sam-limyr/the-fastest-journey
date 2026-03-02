@@ -314,6 +314,57 @@ def derive_comprehensive_destination_weights(
 
 
 # ---------------------------------------------------------------------------
+# Public accessor for destination weights
+# ---------------------------------------------------------------------------
+
+def get_destination_weights(
+    year_month: str = ANALYSIS_MONTH,
+    weight_method: str = "all_hours_weighted",
+) -> dict[str, float]:
+    """
+    Return the normalised work-destination weights used as the centroid for
+    commute scoring.
+
+    Each key is a station name; each value is its share of total tap-out
+    volume (decimal, summing to 1.0 across all included stations).  The
+    dict is ordered by weight descending.
+
+    Parameters
+    ----------
+    year_month : str
+        Month to derive weights from, e.g. "202601".
+    weight_method : str
+        "all_hours_weighted" (default) or "morning_peak" — matches the
+        weight method used by build_map() / calculate_commute_scores().
+    """
+    processed_path = os.path.join(
+        PROCESSED_DATA_DIR, f"transport_node_train_{year_month}_daily_avg.csv"
+    )
+    volume_df = pd.read_csv(processed_path)
+    travel_times = read_travel_time_data()
+    travel_station_names = set(travel_times[COLUMN_FROM_STATION_NAME].unique())
+
+    if weight_method == "morning_peak":
+        morning_df = get_weekday_morning_aggregates(volume_df)
+        weights = derive_work_destination_weights(morning_df, travel_station_names)
+    elif weight_method == "all_hours_weighted":
+        weekday_count, non_weekday_count = get_normalization_factors(year_month)
+        all_hours_df = get_all_hours_weighted_aggregates(
+            volume_df, weekday_count, non_weekday_count
+        )
+        weights = derive_comprehensive_destination_weights(
+            all_hours_df, travel_station_names
+        )
+    else:
+        raise ValueError(
+            f"Unknown weight_method: {weight_method!r}. "
+            f"Use 'all_hours_weighted' or 'morning_peak'."
+        )
+
+    return dict(sorted(weights.items(), key=lambda x: x[1], reverse=True))
+
+
+# ---------------------------------------------------------------------------
 # Commute penalty function
 # ---------------------------------------------------------------------------
 

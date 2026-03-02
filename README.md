@@ -48,6 +48,25 @@ output.
 
 All 9 combinations of `--display` and `--scope` are valid.
 
+### Inspecting destination weights
+
+```
+python analyse.py --weights [--top N] [--bottom N]
+```
+
+Prints the normalised tap-out weights that form the scoring centroid — i.e.
+how much each station contributes to the "expected commute" calculation,
+with a running cumulative total. `--display` and `--scope` are ignored.
+
+| Flag | Description |
+|------|-------------|
+| `--weights` | Enter weights mode (print all stations, descending) |
+| `--top N` | Show only the N highest-weighted stations (descending) |
+| `--bottom N` | Show only the N lowest-weighted stations (ascending) |
+
+`--top` and `--bottom` can be combined to print both ends in one run.
+Either flag also implies `--weights`, so `--weights` itself can be omitted.
+
 ---
 
 ## Methodology
