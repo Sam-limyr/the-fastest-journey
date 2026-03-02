@@ -72,6 +72,26 @@ All 9 combinations of `--display` and `--scope` are valid.
 
 ---
 
+## Refreshing caches
+
+Several assets are fetched from external APIs on first run and cached locally
+to avoid repeated network calls. Delete the relevant file to force a refresh
+on the next run.
+
+| Cache file | Source | When to refresh |
+|------------|--------|-----------------|
+| `station_coords_cache.json` | LTA DataMall shapefile | New stations open or coordinates change |
+| `mrt_lines_cache.geojson` | OpenStreetMap (Overpass API) | MRT network map data has been updated |
+| `future_mrt_cache.geojson` | OpenStreetMap (Overpass API) | Construction/proposed lines have changed |
+
+To delete all caches at once:
+
+```bash
+rm station_coords_cache.json mrt_lines_cache.geojson future_mrt_cache.geojson
+```
+
+---
+
 ## Key files
 
 | File | Purpose |
@@ -84,4 +104,6 @@ All 9 combinations of `--display` and `--scope` are valid.
 | `mrt_distance/travel_times.csv` | ~20 k rows of pairwise MRT travel times. |
 | `mrt_volume/data/station_volumes/transport_node_train_202506.csv` | Hourly tap-in/out volumes (June 2025). |
 | `station_coords_cache.json` | Cached WGS84 station coordinates (auto-generated; delete to refresh). |
+| `mrt_lines_cache.geojson` | Cached MRT/LRT track geometries from OpenStreetMap (auto-generated; delete to refresh). |
+| `future_mrt_cache.geojson` | Cached under-construction/proposed lines from OpenStreetMap (auto-generated; delete to refresh). |
 | `mrt_commute_scores.html` | Generated map output (not committed). |
