@@ -22,12 +22,16 @@ browser.
 
 ```
 python analyse.py [--display <mode>] [--scope <scope>]
+                  [--weight-method <method>] [--from <hour>] [--to <hour>]
 ```
 
-| Flag | Choices | Default | Description |
-|------|---------|---------|-------------|
+| Flag | Choices / type | Default | Description |
+|------|---------------|---------|-------------|
 | `--display` | `log`, `linear`, `minutes` | `log` | How scores are computed and coloured |
 | `--scope` | `residential`, `hdb`, `all` | `residential` | Which stations appear on the map |
+| `--weight-method` | `destinations`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived |
+| `--from` | integer (0–23) | `7` | Start hour of the tap-out window (for `destinations` only) |
+| `--to` | integer (0–23) | `19` | Exclusive end hour of the window (for `destinations` only) |
 
 **Display modes**
 
@@ -48,10 +52,39 @@ output.
 
 All 9 combinations of `--display` and `--scope` are valid.
 
+**Weight methods**
+
+Controls how each destination station is weighted in the expected-commute
+calculation. Each method produces a different view of "where people go".
+
+- `destinations` (alias: `real_world_commuter_destinations`) — combines
+  weekday tap-outs with weekend/public-holiday tap-outs in a **5:2 ratio**,
+  using a configurable time window (default **07:00–18:59**).  Each component
+  is normalised to 1.0 independently before combining, so the ratio reflects
+  relative importance rather than raw volume.  The window is tuned to capture
+  outbound trips — commuting, shopping, errands — while excluding the evening
+  "going home" flow.  **(default)**
+
+  The window can be adjusted with `--from` and `--to`:
+
+  ```
+  python analyse.py --from 7 --to 19     # default — full daytime
+  python analyse.py --from 7 --to 10     # restrict to morning rush only
+  python analyse.py --from 8 --to 22     # extend into the evening
+  ```
+
+- `morning_peak` — uses only weekday morning (7–10 am) tap-out volumes.
+  Focuses purely on work destinations; ignores weekend activity entirely.
+- `all_hours_weighted` — sums tap-outs across all hours and both day types,
+  weighted by the effective number of weekday and non-weekday days in the
+  month.  Reflects overall station throughput including evening and mixed-use
+  traffic.
+
 ### Inspecting destination weights
 
 ```
 python analyse.py --weights [--top N] [--bottom N]
+                  [--weight-method <method>] [--from <hour>] [--to <hour>]
 ```
 
 Prints the normalised tap-out weights that form the scoring centroid — i.e.
@@ -63,6 +96,8 @@ with a running cumulative total. `--display` and `--scope` are ignored.
 | `--weights` | Enter weights mode (print all stations, descending) |
 | `--top N` | Show only the N highest-weighted stations (descending) |
 | `--bottom N` | Show only the N lowest-weighted stations (ascending) |
+| `--weight-method` | Which weight method to inspect (default: `destinations`) |
+| `--from` / `--to` | Time window for `destinations` weighting (default: 7 / 19) |
 
 `--top` and `--bottom` can be combined to print both ends in one run.
 Either flag also implies `--weights`, so `--weights` itself can be omitted.
@@ -71,11 +106,11 @@ Either flag also implies `--weights`, so `--weights` itself can be omitted.
 
 ## Methodology
 
-1. **Work destination weights** — weekday morning (07:00–09:59) tap-out
-   volumes from the LTA DataMall passenger volume dataset are summed per
-   station and normalised to probability weights that sum to 1.0. Stations
-   with higher tap-out volumes during this window are treated as more likely
-   work destinations.
+1. **Work destination weights** — tap-out volumes from the LTA DataMall
+   passenger volume dataset are aggregated per station using the selected
+   weight method (default: `destinations`) and normalised to probability
+   weights that sum to 1.0. Stations with higher tap-out volumes are treated
+   as more likely destinations.
 
 2. **Expected commute time** — for each residential station, the weighted
    average travel time to all work destinations is computed using a pairwise

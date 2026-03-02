@@ -7,18 +7,23 @@ Computes commute scores for MRT stations and opens an interactive HTML map.
 Can also print the destination weights that form the scoring centroid.
 
 Usage:
-    python analyse.py [--display <mode>] [--scope <scope>]
+    python analyse.py [--display <mode>] [--scope <scope>] [--weight-method <method>]
+                      [--from <hour>] [--to <hour>]
     python analyse.py --weights [--top N] [--bottom N]
+                      [--weight-method <method>] [--from <hour>] [--to <hour>]
 
 Examples:
     python analyse.py
     python analyse.py --display log --scope residential
     python analyse.py --display minutes --scope all
     python analyse.py --display linear --scope hdb
+    python analyse.py --weight-method morning_peak
+    python analyse.py --from 8 --to 22
     python analyse.py --weights
     python analyse.py --weights --top 10
     python analyse.py --weights --bottom 10
     python analyse.py --weights --top 5 --bottom 5
+    python analyse.py --weights --weight-method all_hours_weighted
 """
 
 from __future__ import annotations
@@ -30,8 +35,27 @@ import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from data_driven_rankings import ANALYSIS_MONTH, get_destination_weights
+from data_driven_rankings import (
+    ANALYSIS_MONTH,
+    DESTINATIONS_START_HOUR,
+    DESTINATIONS_END_HOUR,
+    get_destination_weights,
+)
 from visualize_scores import build_map, OUTPUT_HTML
+
+_WEIGHT_METHOD_LABELS = {
+    "destinations":                    "real-world destinations (wd ×5 + wknd ×2)",
+    "real_world_commuter_destinations": "real-world destinations (wd ×5 + wknd ×2)",
+    "morning_peak":                    "morning peak (weekday 7–10am)",
+    "all_hours_weighted":              "all-hours weighted",
+}
+
+_WEIGHT_METHOD_CHOICES = [
+    "destinations",
+    "real_world_commuter_destinations",
+    "morning_peak",
+    "all_hours_weighted",
+]
 
 
 def _print_weights_table(rows: list[tuple[int, str, float]], total: int) -> None:
@@ -49,14 +73,28 @@ def _print_weights_table(rows: list[tuple[int, str, float]], total: int) -> None
     print(f"Showing {len(rows)} of {total} stations")
 
 
-def cmd_weights(top: int | None, bottom: int | None) -> None:
+def cmd_weights(
+    top: int | None,
+    bottom: int | None,
+    weight_method: str = "destinations",
+    start_hour: int = DESTINATIONS_START_HOUR,
+    end_hour: int = DESTINATIONS_END_HOUR,
+) -> None:
     """Print destination weights, optionally filtered to the top and/or bottom N."""
-    weights = get_destination_weights(year_month=ANALYSIS_MONTH)
+    weights = get_destination_weights(
+        year_month=ANALYSIS_MONTH,
+        weight_method=weight_method,
+        start_hour=start_hour,
+        end_hour=end_hour,
+    )
     year, month = ANALYSIS_MONTH[:4], ANALYSIS_MONTH[4:]
     all_rows = [(rank, stn, w) for rank, (stn, w) in enumerate(weights.items(), 1)]
     total = len(all_rows)
 
-    header = f"\n=== Destination weights  (all-hours weighted, {year}-{month}) ==="
+    method_label = _WEIGHT_METHOD_LABELS.get(weight_method, weight_method)
+    if weight_method in ("destinations", "real_world_commuter_destinations"):
+        method_label += f"  [{start_hour:02d}:00–{end_hour:02d}:00]"
+    header = f"\n=== Destination weights  ({method_label}, {year}-{month}) ==="
 
     if top is None and bottom is None:
         print(header)
@@ -85,6 +123,8 @@ def main() -> None:
             "  python analyse.py --display log --scope residential\n"
             "  python analyse.py --display minutes --scope all\n"
             "  python analyse.py --display linear --scope hdb\n"
+            "  python analyse.py --weight-method morning_peak\n"
+            "  python analyse.py --from 8 --to 22\n"
             "\n"
             "  All 9 combinations of --display and --scope are valid.\n"
             "  After analysis, the HTML map is opened automatically.\n"
@@ -94,9 +134,11 @@ def main() -> None:
             "  python analyse.py --weights --top 10\n"
             "  python analyse.py --weights --bottom 10\n"
             "  python analyse.py --weights --top 5 --bottom 5\n"
+            "  python analyse.py --weights --weight-method all_hours_weighted\n"
+            "  python analyse.py --weights --from 8 --to 20\n"
             "\n"
             "  Prints the destination weights used for the centroid.\n"
-            "  --top N   shows the N highest-weighted stations (descending).\n"
+            "  --top N    shows the N highest-weighted stations (descending).\n"
             "  --bottom N shows the N lowest-weighted stations (ascending).\n"
             "  Omit both to print all stations.\n"
             "  --display and --scope are ignored in weights mode."
@@ -120,6 +162,48 @@ def main() -> None:
             "hdb         — HDB estate stations only\n"
             "residential — all residential MRT stations  [default]\n"
             "all         — every station in the travel-time dataset"
+        ),
+    )
+    parser.add_argument(
+        "--weight-method",
+        dest="weight_method",
+        choices=_WEIGHT_METHOD_CHOICES,
+        default="destinations",
+        metavar="METHOD",
+        help=(
+            "How destination weights are derived (default: destinations).\n"
+            "  destinations / real_world_commuter_destinations\n"
+            "      Weekday tap-outs × 5 + weekend/PH tap-outs × 2 in the\n"
+            "      time window set by --from / --to, each normalised to 1.0\n"
+            "      before combining.  [default]\n"
+            "  morning_peak\n"
+            "      Weekday morning (7–10am) tap-outs only.\n"
+            "  all_hours_weighted\n"
+            "      All-hours, day-count-weighted tap-outs."
+        ),
+    )
+    parser.add_argument(
+        "--from",
+        dest="hour_from",
+        type=int,
+        default=DESTINATIONS_START_HOUR,
+        metavar="HOUR",
+        help=(
+            f"Start of the tap-out window for 'destinations' weighting, "
+            f"in 24-hour clock (default: {DESTINATIONS_START_HOUR}). "
+            f"Ignored for other weight methods."
+        ),
+    )
+    parser.add_argument(
+        "--to",
+        dest="hour_to",
+        type=int,
+        default=DESTINATIONS_END_HOUR,
+        metavar="HOUR",
+        help=(
+            f"Exclusive end of the tap-out window for 'destinations' weighting, "
+            f"in 24-hour clock (default: {DESTINATIONS_END_HOUR}, i.e. up to 18:59). "
+            f"Ignored for other weight methods."
         ),
     )
     parser.add_argument(
@@ -147,11 +231,32 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.weights or args.top is not None or args.bottom is not None:
-        cmd_weights(top=args.top, bottom=args.bottom)
+        cmd_weights(
+            top=args.top,
+            bottom=args.bottom,
+            weight_method=args.weight_method,
+            start_hour=args.hour_from,
+            end_hour=args.hour_to,
+        )
         return
 
-    print(f"==> display={args.display}  scope={args.scope}\n")
-    build_map(scoring_method=args.display, station_scope=args.scope)
+    print(
+        f"==> display={args.display}  scope={args.scope}"
+        f"  weight_method={args.weight_method}"
+        + (
+            f"  window={args.hour_from:02d}:00–{args.hour_to:02d}:00"
+            if args.weight_method in ("destinations", "real_world_commuter_destinations")
+            else ""
+        )
+        + "\n"
+    )
+    build_map(
+        scoring_method=args.display,
+        station_scope=args.scope,
+        weight_method=args.weight_method,
+        start_hour=args.hour_from,
+        end_hour=args.hour_to,
+    )
     print(f"\nOpening map: {OUTPUT_HTML}")
     webbrowser.open(OUTPUT_HTML)
 

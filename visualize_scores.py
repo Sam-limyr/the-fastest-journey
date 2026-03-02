@@ -28,6 +28,8 @@ from data_driven_rankings import (
     calculate_data_driven_ratings,
     ANALYSIS_MONTH,
     COLUMN_EXPECTED_COMMUTE_MINUTES,
+    DESTINATIONS_START_HOUR,
+    DESTINATIONS_END_HOUR,
     get_residential_mrt_stations,
     get_hdb_mrt_stations,
 )
@@ -353,9 +355,11 @@ def text_color_for(score: int) -> str:
 
 def build_map(
     year_month: str = ANALYSIS_MONTH,
-    weight_method: str = "all_hours_weighted",
+    weight_method: str = "destinations",
     scoring_method: str = "log",
     station_scope: str = "residential",
+    start_hour: int = DESTINATIONS_START_HOUR,
+    end_hour: int = DESTINATIONS_END_HOUR,
 ) -> str:
     """
     Compute commute scores, fetch station coordinates, and write an HTML map.
@@ -365,18 +369,23 @@ def build_map(
     year_month : str
         Month to analyse (must have a normalization entry), e.g. "202601".
     weight_method : str
-        "morning_peak" or "all_hours_weighted" (default).
+        "destinations" (default), "morning_peak", or "all_hours_weighted".
     scoring_method : str
         "log" (default), "linear", or "minutes" (raw minutes, no 1-10 scale).
     station_scope : str
         "residential" (default), "hdb", or "all".
+    start_hour : int
+        For "destinations": first hour of the tap-out window (default 7).
+    end_hour : int
+        For "destinations": exclusive end hour (default 19, i.e. hours 7–18).
 
     Returns the path of the written HTML file.
     """
     print("Computing commute scores …")
     if scoring_method == "minutes":
         raw_df = calculate_data_driven_ratings(
-            year_month=year_month, station_scope="all", verbose=False, weight_method=weight_method,
+            year_month=year_month, station_scope="all", verbose=False,
+            weight_method=weight_method, start_hour=start_hour, end_hour=end_hour,
         )
         if station_scope == "residential":
             raw_df = raw_df[raw_df.index.isin(set(get_residential_mrt_stations()))]
@@ -394,6 +403,7 @@ def build_map(
         scores_df = calculate_commute_scores(
             year_month=year_month, station_scope=station_scope,
             weight_method=weight_method, scoring_method=scoring_method, verbose=False,
+            start_hour=start_hour, end_hour=end_hour,
         )
         display_label = f"{scoring_method} score"
 
