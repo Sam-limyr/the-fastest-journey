@@ -7,17 +7,17 @@ Computes commute scores for MRT stations and opens an interactive HTML map.
 Can also print the destination weights that form the scoring centroid.
 
 Usage:
-    python analyse.py [--display <mode>] [--scope <scope>] [--weight-method <method>]
+    python analyse.py [--score <mode>] [--scope <scope>] [--weight-method <method>]
                       [--from <hour>] [--to <hour>]
     python analyse.py --weights [--top N] [--bottom N]
                       [--weight-method <method>] [--from <hour>] [--to <hour>]
 
 Examples:
     python analyse.py
-    python analyse.py --display log --scope residential
-    python analyse.py --display minutes --scope all
-    python analyse.py --display linear --scope hdb
-    python analyse.py --display weights
+    python analyse.py --score log --scope residential
+    python analyse.py --score minutes --scope all
+    python analyse.py --score linear --scope hdb
+    python analyse.py --score weights
     python analyse.py --weight-method morning_peak
     python analyse.py --from 8 --to 22
     python analyse.py --weights
@@ -123,15 +123,15 @@ def main() -> None:
         epilog=(
             "Map mode (default):\n"
             "  python analyse.py\n"
-            "  python analyse.py --display log --scope residential\n"
-            "  python analyse.py --display minutes --scope all\n"
-            "  python analyse.py --display linear --scope hdb\n"
-            "  python analyse.py --display weights\n"
+            "  python analyse.py --score log --scope residential\n"
+            "  python analyse.py --score minutes --scope all\n"
+            "  python analyse.py --score linear --scope hdb\n"
+            "  python analyse.py --score weights\n"
             "  python analyse.py --weight-method morning_peak\n"
             "  python analyse.py --from 8 --to 22\n"
             "\n"
-            "  All combinations of --display and --scope are valid.\n"
-            "  --display weights opens a destination-weights map instead.\n"
+            "  All combinations of --score and --scope are valid.\n"
+            "  --score weights opens a destination-weights map instead.\n"
             "  After analysis, the HTML map is opened automatically.\n"
             "\n"
             "Weights mode:\n"
@@ -146,11 +146,11 @@ def main() -> None:
             "  --top N    shows the N highest-weighted stations (descending).\n"
             "  --bottom N shows the N lowest-weighted stations (ascending).\n"
             "  Omit both to print all stations.\n"
-            "  --display and --scope are ignored in weights mode."
+            "  --score and --scope are ignored in weights mode."
         ),
     )
     parser.add_argument(
-        "--display",
+        "--score",
         choices=["minutes", "linear", "log", "weights"],
         default="log",
         help=(
@@ -255,11 +255,11 @@ def main() -> None:
         else ""
     )
     print(
-        f"==> display={args.display}  scope={args.scope}"
+        f"==> score={args.score}  scope={args.scope}"
         f"  weight_method={args.weight_method}{window_suffix}\n"
     )
 
-    if args.display == "weights":
+    if args.score == "weights":
         build_weights_map(
             station_scope=args.scope,
             weight_method=args.weight_method,
@@ -270,7 +270,7 @@ def main() -> None:
         webbrowser.open(OUTPUT_WEIGHTS_HTML)
     else:
         build_map(
-            scoring_method=args.display,
+            scoring_method=args.score,
             station_scope=args.scope,
             weight_method=args.weight_method,
             start_hour=args.hour_from,

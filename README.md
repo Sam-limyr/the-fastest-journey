@@ -21,19 +21,19 @@ browser.
 ### Options
 
 ```
-python analyse.py [--display <mode>] [--scope <scope>]
+python analyse.py [--score <mode>] [--scope <scope>]
                   [--weight-method <method>] [--from <hour>] [--to <hour>]
 ```
 
 | Flag | Choices / type | Default | Description |
 |------|---------------|---------|-------------|
-| `--display` | `log`, `linear`, `minutes` | `log` | How scores are computed and coloured |
+| `--score` | `log`, `linear`, `minutes`, `weights` | `log` | How scores are computed and coloured |
 | `--scope` | `residential`, `hdb`, `all` | `residential` | Which stations appear on the map |
-| `--weight-method` | `destinations`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived |
+| `--weight-method` | `destinations`, `work_and_leisure`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived |
 | `--from` | integer (0–23) | `7` | Start hour of the tap-out window (for `destinations` only) |
 | `--to` | integer (0–23) | `19` | Exclusive end hour of the window (for `destinations` only) |
 
-**Display modes**
+**Score modes**
 
 - `log` — 1–10 score using z-scores of log-transformed expected commute time.
   Amplifies differences at the short end of the distribution (recommended).
@@ -52,7 +52,7 @@ output.
 - `hdb` — stations near HDB estates only (subset of residential)
 - `all` — every station in the travel-time dataset
 
-All 9 combinations of `--display` and `--scope` are valid.
+All 9 combinations of `--score` and `--scope` are valid.
 
 **Weight methods**
 
@@ -91,7 +91,7 @@ calculation. Each method produces a different view of "where people go".
 ### Destination weights map
 
 ```
-python analyse.py --display weights [--scope <scope>]
+python analyse.py --score weights [--scope <scope>]
                   [--weight-method <method>] [--from <hour>] [--to <hour>]
 ```
 
@@ -119,7 +119,7 @@ python analyse.py --weights [--top N] [--bottom N]
 
 Prints the normalised tap-out weights that form the scoring centroid — i.e.
 how much each station contributes to the "expected commute" calculation,
-with a running cumulative total. `--display` and `--scope` are ignored.
+with a running cumulative total. `--score` and `--scope` are ignored.
 
 | Flag | Description |
 |------|-------------|
