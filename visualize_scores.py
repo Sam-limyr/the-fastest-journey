@@ -30,12 +30,14 @@ from data_driven_rankings import (
     COLUMN_EXPECTED_COMMUTE_MINUTES,
     DESTINATIONS_START_HOUR,
     DESTINATIONS_END_HOUR,
+    get_destination_weights,
     get_residential_mrt_stations,
     get_hdb_mrt_stations,
 )
 
 _REPO_ROOT            = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_HTML           = os.path.join(_REPO_ROOT, "mrt_commute_scores.html")
+OUTPUT_WEIGHTS_HTML   = os.path.join(_REPO_ROOT, "mrt_destination_weights.html")
 COORDS_CACHE_PATH     = os.path.join(_REPO_ROOT, "station_coords_cache.json")
 MRT_LINES_CACHE_PATH  = os.path.join(_REPO_ROOT, "mrt_lines_cache.geojson")
 FUTURE_MRT_CACHE_PATH = os.path.join(_REPO_ROOT, "future_mrt_cache.geojson")
@@ -328,20 +330,26 @@ def fetch_future_mrt_lines() -> dict | None:
 # Colour mapping  (score 1 = deep red → score 10 = deep green)
 # ---------------------------------------------------------------------------
 
-def score_to_color(score: int) -> str:
-    """Map integer score 1-10 to a hex colour on a red→yellow→green scale."""
-    t = (score - 1) / 9          # 0.0 (worst) → 1.0 (best)
+def _gradient_color(t: float) -> str:
+    """
+    Map t ∈ [0.0, 1.0] to a hex colour on a red→yellow→green gradient.
+    0.0 = worst (red), 1.0 = best (green).
+    """
+    t = max(0.0, min(1.0, t))
     if t <= 0.5:
-        # Red (#cc2200) → Yellow (#ddcc00)
         r = 204
         g = int(t * 2 * 180)
         b = 0
     else:
-        # Yellow → Green (#006600)
         r = int((1 - (t - 0.5) * 2) * 180)
         g = 180
         b = 0
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def score_to_color(score: int) -> str:
+    """Map integer score 1-10 to a hex colour on a red→yellow→green scale."""
+    return _gradient_color((score - 1) / 9)
 
 
 def text_color_for(score: int) -> str:
@@ -726,6 +734,371 @@ window.addEventListener('load', function() {{
     m.save(OUTPUT_HTML)
     print(f"\nMap saved to: {OUTPUT_HTML}")
     return OUTPUT_HTML
+
+
+def build_weights_map(
+    year_month: str = ANALYSIS_MONTH,
+    weight_method: str = "destinations",
+    station_scope: str = "residential",
+    start_hour: int = DESTINATIONS_START_HOUR,
+    end_hour: int = DESTINATIONS_END_HOUR,
+) -> str:
+    """
+    Build an interactive HTML map showing the destination weights used for the
+    commute-score centroid.  Each station circle is coloured on the same
+    red→yellow→green gradient as the commute score map, scaled so the
+    highest-weighted station receives 100 and all others are proportional.
+    The circle label shows the station's actual percentage share of total
+    tap-out volume.
+
+    Parameters
+    ----------
+    year_month : str
+        Month to derive weights from, e.g. "202601".
+    weight_method : str
+        "destinations" (default), "morning_peak", or "all_hours_weighted".
+    station_scope : str
+        "residential" (default), "hdb", or "all".
+    start_hour : int
+        For "destinations": start of the tap-out window (default 7).
+    end_hour : int
+        For "destinations": exclusive end of the window (default 19).
+
+    Returns the path of the written HTML file.
+    """
+    import math
+
+    print("Computing destination weights …")
+    weights_all = get_destination_weights(
+        year_month=year_month,
+        weight_method=weight_method,
+        start_hour=start_hour,
+        end_hour=end_hour,
+    )
+
+    # Filter to the requested scope (weights are computed over the full network)
+    if station_scope == "residential":
+        scope_set = set(get_residential_mrt_stations())
+        weights = {s: w for s, w in weights_all.items() if s in scope_set}
+    elif station_scope == "hdb":
+        scope_set = set(get_hdb_mrt_stations())
+        weights = {s: w for s, w in weights_all.items() if s in scope_set}
+    else:
+        weights = dict(weights_all)
+
+    if not weights:
+        raise ValueError(f"No weight data remains after applying scope={station_scope!r}.")
+
+    max_weight = max(weights.values())
+
+    # Scale each station to 1–100 relative to the most-weighted station,
+    # then assign to a decile band (1–10) for FeatureGroup filtering.
+    def scaled_score(w: float) -> int:
+        return max(1, round(w / max_weight * 100))
+
+    def decile_group(sc: int) -> int:
+        return min(10, math.ceil(sc / 10))
+
+    # -----------------------------------------------------------------------
+    # Fetch assets
+    # -----------------------------------------------------------------------
+    coords = fetch_station_coords()
+    missing = [s for s in weights if s not in coords]
+    if missing:
+        print(f"[!] No coordinates found for {len(missing)} stations: {missing}")
+
+    mrt_geojson    = fetch_mrt_lines()
+    future_geojson = fetch_future_mrt_lines()
+    has_mrt    = bool(mrt_geojson    and mrt_geojson.get("features"))
+    has_future = bool(future_geojson and future_geojson.get("features"))
+
+    # -----------------------------------------------------------------------
+    # Map
+    # -----------------------------------------------------------------------
+    m = folium.Map(
+        location=[1.3521, 103.8198],
+        zoom_start=12,
+        tiles="CartoDB positron",
+        control_scale=True,
+    )
+
+    # MRT overlays sit beneath station circles
+    mrt_fg    = folium.FeatureGroup(name="MRT Lines",        show=True)
+    future_fg = folium.FeatureGroup(name="Future MRT Lines", show=False)
+
+    if has_mrt:
+        folium.GeoJson(
+            mrt_geojson,
+            style_function=lambda f: {
+                "color":   f["properties"].get("color", "#888888"),
+                "weight":  3,
+                "opacity": 0.85,
+            },
+        ).add_to(mrt_fg)
+
+    if has_future:
+        folium.GeoJson(
+            future_geojson,
+            style_function=lambda f: {
+                "color":     f["properties"].get("color", "#888888"),
+                "weight":    2,
+                "opacity":   0.65,
+                "dashArray": "6 4",
+            },
+        ).add_to(future_fg)
+
+    mrt_fg.add_to(m)
+    future_fg.add_to(m)
+
+    # Ten FeatureGroups — one per decile band of the 1–100 relative weight scale.
+    # Band 10 = most-weighted stations (scaled score 91–100).
+    # Band 1  = least-weighted stations (scaled score 1–10).
+    weight_groups: dict[int, folium.FeatureGroup] = {}
+    for grp in range(1, 11):
+        fg = folium.FeatureGroup(name=f"Weight band {grp}", show=True)
+        weight_groups[grp] = fg
+        fg.add_to(m)
+
+    # Station markers
+    sorted_stations = sorted(weights.items(), key=lambda x: x[1])
+    for rank_asc, (station, w) in enumerate(sorted_stations, 1):
+        if station not in coords:
+            continue
+        lat, lng = coords[station]
+        sc       = scaled_score(w)
+        grp      = decile_group(sc)
+        color    = _gradient_color((sc - 1) / 99)
+        fg_txt   = "#ffffff" if sc <= 30 or sc >= 90 else "#111111"
+        label    = f"{w * 100:.1f}%"
+        rank_desc = len(weights) - rank_asc + 1
+
+        tooltip_html = (
+            f"<b>{station}</b><br>"
+            f"Weight: <b>{w * 100:.2f}%</b><br>"
+            f"Rank: {rank_desc} of {len(weights)}"
+        )
+        target = weight_groups[grp]
+
+        folium.CircleMarker(
+            location=[lat, lng],
+            radius=14,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.92,
+            weight=1.5,
+            tooltip=folium.Tooltip(tooltip_html, sticky=False),
+        ).add_to(target)
+
+        folium.Marker(
+            location=[lat, lng],
+            icon=folium.DivIcon(
+                html=(
+                    f'<div style="'
+                    f'width:28px;height:28px;'
+                    f'border-radius:50%;'
+                    f'background:{color};'
+                    f'border:1.5px solid rgba(0,0,0,0.35);'
+                    f'display:flex;align-items:center;justify-content:center;'
+                    f'font-family:Arial,sans-serif;font-size:9px;font-weight:bold;'
+                    f'color:{fg_txt};'
+                    f'">{label}</div>'
+                ),
+                icon_size=(28, 28),
+                icon_anchor=(14, 14),
+            ),
+            tooltip=folium.Tooltip(tooltip_html, sticky=False),
+        ).add_to(target)
+
+    # -----------------------------------------------------------------------
+    # Per-band metadata for the legend (actual weight% range)
+    # -----------------------------------------------------------------------
+    band_meta: dict[int, dict | None] = {}
+    for grp in range(1, 11):
+        grp_weights = [w for s, w in weights.items() if decile_group(scaled_score(w)) == grp]
+        if not grp_weights:
+            band_meta[grp] = None
+        else:
+            band_meta[grp] = {
+                "min_pct": min(grp_weights) * 100,
+                "max_pct": max(grp_weights) * 100,
+                "count":   len(grp_weights),
+            }
+
+    # -----------------------------------------------------------------------
+    # Control panel
+    # -----------------------------------------------------------------------
+    band_rows_html = ""
+    for grp in range(10, 0, -1):
+        color  = _gradient_color((grp * 10 - 5) / 99)   # midpoint of decile band
+        fg_txt = "#ffffff" if grp <= 3 or grp >= 9 else "#111111"
+        meta   = band_meta.get(grp)
+        if meta:
+            if abs(meta["max_pct"] - meta["min_pct"]) < 0.005:
+                pct_str = f"{meta['min_pct']:.2f}%"
+            else:
+                pct_str = f"{meta['min_pct']:.2f}–{meta['max_pct']:.2f}%"
+            label_str = "Highest" if grp == 10 else "Lowest" if grp == 1 else ""
+            detail = f"{pct_str} &middot; {meta['count']} stn"
+        else:
+            pct_str   = "—"
+            label_str = ""
+            detail    = "&mdash;"
+
+        band_rows_html += (
+            f'<div style="display:flex;align-items:flex-start;margin:2px 0;">'
+            f'<div style="width:20px;height:20px;border-radius:50%;background:{color};'
+            f'border:1px solid rgba(0,0,0,0.3);display:inline-flex;align-items:center;'
+            f'justify-content:center;font-weight:bold;font-size:9px;color:{fg_txt};'
+            f'flex-shrink:0;">{grp}</div>'
+            f'<div style="margin-left:6px;line-height:1.4;">'
+            f'{label_str}'
+            f'<div style="font-size:10px;color:#555;">{detail}</div>'
+            f'</div></div>\n'
+        )
+
+    min_opts = "".join(f'<option value="{g}">{g}</option>' for g in range(1, 11))
+    max_opts = "".join(
+        f'<option value="{g}"{" selected" if g == 10 else ""}>{g}</option>'
+        for g in range(1, 11)
+    )
+
+    overlay_rows = ""
+    if has_mrt:
+        overlay_rows += (
+            '<label style="cursor:pointer;">'
+            '<input type="checkbox" id="mrtToggle" onchange="toggleMrtLines()" checked>'
+            " MRT lines</label><br>"
+        )
+    if has_future:
+        overlay_rows += (
+            '<label style="cursor:pointer;">'
+            '<input type="checkbox" id="futureToggle" onchange="toggleFutureLines()">'
+            " Future lines</label><br>"
+        )
+    overlays_section = (
+        f"<br><b>Overlays:</b><br>{overlay_rows}"
+        if (has_mrt or has_future) else ""
+    )
+
+    control_html = f"""
+<div id="ctrl-panel" style="
+    position:fixed;bottom:30px;right:15px;z-index:1000;
+    background:white;border:1px solid #bbb;border-radius:6px;
+    padding:10px 14px;font-family:Arial,sans-serif;font-size:12px;
+    box-shadow:2px 2px 6px rgba(0,0,0,0.25);min-width:175px;
+    max-height:80vh;overflow-y:auto;
+">
+<b>Destination weight</b><br>
+<span style="font-size:10px;color:#666;">% of total tap-out volume</span><br>
+<span style="font-size:10px;color:#666;">colour scaled to highest station</span><br><br>
+{band_rows_html}
+<br><b>Filter by band:</b><br>
+<span style="font-size:11px;">
+  Min:&nbsp;<select id="minScore" onchange="applyScoreFilter()"
+             style="width:40px;font-size:11px;">{min_opts}</select>
+  &nbsp;Max:&nbsp;<select id="maxScore" onchange="applyScoreFilter()"
+                          style="width:40px;font-size:11px;">{max_opts}</select>
+</span>
+{overlays_section}
+</div>
+"""
+
+    # -----------------------------------------------------------------------
+    # JavaScript
+    # -----------------------------------------------------------------------
+    sg_entries   = ", ".join(f"{g}: {weight_groups[g].get_name()}" for g in range(1, 11))
+    mrt_fg_js    = mrt_fg.get_name()    if has_mrt    else "null"
+    future_fg_js = future_fg.get_name() if has_future else "null"
+    map_var      = m.get_name()
+
+    control_js = f"""
+<script>
+window.addEventListener('load', function() {{
+    var mapObj       = {map_var};
+    var scoreGroups  = {{ {sg_entries} }};
+    var mrtLayer     = {mrt_fg_js};
+    var futureLayer  = {future_fg_js};
+
+    if (futureLayer) mapObj.removeLayer(futureLayer);
+
+    window.applyScoreFilter = function() {{
+        var mn = parseInt(document.getElementById('minScore').value);
+        var mx = parseInt(document.getElementById('maxScore').value);
+        if (mn > mx) {{ var t = mn; mn = mx; mx = t; }}
+        for (var g = 1; g <= 10; g++) {{
+            var grp = scoreGroups[g];
+            if (!grp) continue;
+            if (g >= mn && g <= mx) {{
+                if (!mapObj.hasLayer(grp)) grp.addTo(mapObj);
+            }} else {{
+                if (mapObj.hasLayer(grp)) mapObj.removeLayer(grp);
+            }}
+        }}
+    }};
+
+    window.toggleMrtLines = function() {{
+        if (!mrtLayer) return;
+        if (document.getElementById('mrtToggle').checked) {{
+            mrtLayer.addTo(mapObj);
+        }} else {{
+            mapObj.removeLayer(mrtLayer);
+        }}
+    }};
+
+    window.toggleFutureLines = function() {{
+        if (!futureLayer) return;
+        if (document.getElementById('futureToggle').checked) {{
+            futureLayer.addTo(mapObj);
+        }} else {{
+            mapObj.removeLayer(futureLayer);
+        }}
+    }};
+}});
+</script>
+"""
+
+    m.get_root().html.add_child(folium.Element(control_html))
+    m.get_root().html.add_child(folium.Element(control_js))
+
+    # -----------------------------------------------------------------------
+    # Title
+    # -----------------------------------------------------------------------
+    scope_labels = {"residential": "residential", "hdb": "HDB", "all": "all stations"}
+    method_labels = {
+        "destinations":  f"destinations {start_hour:02d}:00–{end_hour:02d}:00",
+        "morning_peak":  "morning peak",
+        "all_hours_weighted": "all-hours weighted",
+    }
+    title_html = f"""
+    <div style="
+        position: fixed;
+        top: 10px; left: 50%; transform: translateX(-50%);
+        z-index: 1000;
+        background: rgba(255,255,255,0.92);
+        border: 1px solid #bbb;
+        border-radius: 6px;
+        padding: 6px 16px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+        pointer-events: none;
+    ">
+        Destination Weights &nbsp;|&nbsp;
+        <span style="font-weight:normal;font-size:12px;">
+            {year_month[:4]}-{year_month[4:]} &middot;
+            {method_labels.get(weight_method, weight_method)} &middot;
+            {scope_labels.get(station_scope, station_scope)} stations &middot;
+            colour scaled to highest station
+        </span>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(title_html))
+
+    m.save(OUTPUT_WEIGHTS_HTML)
+    print(f"\nWeights map saved to: {OUTPUT_WEIGHTS_HTML}")
+    return OUTPUT_WEIGHTS_HTML
 
 
 if __name__ == "__main__":

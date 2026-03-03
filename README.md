@@ -39,6 +39,8 @@ python analyse.py [--display <mode>] [--scope <scope>]
   Amplifies differences at the short end of the distribution (recommended).
 - `linear` — 1–10 score using z-scores of raw expected commute minutes.
 - `minutes` — colours by raw expected commute minutes with no 1–10 scoring.
+- `weights` — destination weights map (writes `mrt_destination_weights.html`
+  instead of the usual commute scores map; see below).
 
 **Scope**
 
@@ -79,6 +81,28 @@ calculation. Each method produces a different view of "where people go".
   weighted by the effective number of weekday and non-weekday days in the
   month.  Reflects overall station throughput including evening and mixed-use
   traffic.
+
+### Destination weights map
+
+```
+python analyse.py --display weights [--scope <scope>]
+                  [--weight-method <method>] [--from <hour>] [--to <hour>]
+```
+
+Generates `mrt_destination_weights.html` — a standalone map showing how much
+each station contributes to the commute-score centroid.
+
+- Each circle label shows the station's **actual percentage share** of total
+  network tap-out volume (e.g. `"2.3%"`).
+- Colour is scaled relative to the **highest-weighted station** (= 100 on an
+  internal 1–100 scale), using the same red→yellow→green gradient as the
+  commute score map.  The heaviest destination always appears green; lighter
+  destinations grade toward red.
+- Stations are grouped into **10 bands** by relative weight (band 10 = top 10%
+  of the 1–100 scale; band 1 = bottom 10%) for optional filter control.
+- All `--weight-method`, `--from`, and `--to` flags apply as for the commute
+  score map.
+- The legend shows the actual weight% range of stations in each band.
 
 ### Inspecting destination weights
 
@@ -160,4 +184,5 @@ rm station_coords_cache.json mrt_lines_cache.geojson future_mrt_cache.geojson
 | `station_coords_cache.json` | Cached WGS84 station coordinates (auto-generated; delete to refresh). |
 | `mrt_lines_cache.geojson` | Cached MRT/LRT track geometries from OpenStreetMap (auto-generated; delete to refresh). |
 | `future_mrt_cache.geojson` | Cached under-construction/proposed lines from OpenStreetMap (auto-generated; delete to refresh). |
-| `mrt_commute_scores.html` | Generated map output (not committed). |
+| `mrt_commute_scores.html` | Generated commute score map (not committed). |
+| `mrt_destination_weights.html` | Generated destination weights map (not committed). |

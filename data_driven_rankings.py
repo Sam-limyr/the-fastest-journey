@@ -114,22 +114,37 @@ def load_volume_data(file_path: str) -> pd.DataFrame:
     Crucially, these stations appear ONLY as the combined code — they have no
     separate rows for each constituent line.  Therefore we must NOT explode the
     combined codes into multiple rows (which would multiply the volumes by the
-    number of lines).  Instead we extract only the first component as the
-    canonical lookup key, which uniquely identifies the physical station.
+    number of lines).  Instead we extract one component as the canonical lookup
+    key, which uniquely identifies the physical station.
+
+    Canonical code selection: prefer the first non-LRT component.  This avoids
+    mistakenly discarding MRT/LRT interchanges such as Bukit Panjang ("BP6/DT1"),
+    where the first component (BP6) is LRT but the second (DT1, Downtown Line)
+    is not.  Pure LRT stations (all components LRT) still fall through to the
+    LRT filter and are excluded as before.
     """
     df = pd.read_csv(file_path)
 
-    # Use only the first code from combined interchange codes (e.g. "EW16" from
-    # "EW16/NE3/TE17") — this avoids the overcounting that would result from
-    # exploding the codes into separate rows.
-    df[CANONICAL_CODE] = df[STATION_CODE].str.split("/").str[0]
-
-    # Enrich with human-readable station names
+    # Build a code→line lookup so we can identify LRT components before merging.
     mapping_df = get_station_code_to_name_mapping()
+    code_to_line: dict[str, str] = dict(
+        zip(mapping_df[STATION_CODE], mapping_df[MRT_LINE])
+    )
+
+    def _pick_canonical(combined_code: str) -> str:
+        """First non-LRT component, or the first component as fallback."""
+        for part in combined_code.split("/"):
+            if "LRT" not in code_to_line.get(part, "LRT"):
+                return part
+        return combined_code.split("/")[0]
+
+    df[CANONICAL_CODE] = df[STATION_CODE].apply(_pick_canonical)
+
+    # Enrich with human-readable station names and line info
     mapping_df = mapping_df.rename(columns={STATION_CODE: CANONICAL_CODE})
     df = df.merge(mapping_df, on=CANONICAL_CODE)
 
-    # Exclude LRT lines — their structural traffic patterns differ from MRT
+    # Exclude pure-LRT stations — their structural traffic patterns differ from MRT
     df = df[~df[MRT_LINE].str.contains("LRT")]
 
     df[STATION_NAME] = df[STATION_NAME].str.strip()

@@ -17,6 +17,7 @@ Examples:
     python analyse.py --display log --scope residential
     python analyse.py --display minutes --scope all
     python analyse.py --display linear --scope hdb
+    python analyse.py --display weights
     python analyse.py --weight-method morning_peak
     python analyse.py --from 8 --to 22
     python analyse.py --weights
@@ -41,7 +42,7 @@ from data_driven_rankings import (
     DESTINATIONS_END_HOUR,
     get_destination_weights,
 )
-from visualize_scores import build_map, OUTPUT_HTML
+from visualize_scores import build_map, build_weights_map, OUTPUT_HTML, OUTPUT_WEIGHTS_HTML
 
 _WEIGHT_METHOD_LABELS = {
     "destinations":                    "real-world destinations (wd ×5 + wknd ×2)",
@@ -123,10 +124,12 @@ def main() -> None:
             "  python analyse.py --display log --scope residential\n"
             "  python analyse.py --display minutes --scope all\n"
             "  python analyse.py --display linear --scope hdb\n"
+            "  python analyse.py --display weights\n"
             "  python analyse.py --weight-method morning_peak\n"
             "  python analyse.py --from 8 --to 22\n"
             "\n"
-            "  All 9 combinations of --display and --scope are valid.\n"
+            "  All combinations of --display and --scope are valid.\n"
+            "  --display weights opens a destination-weights map instead.\n"
             "  After analysis, the HTML map is opened automatically.\n"
             "\n"
             "Weights mode:\n"
@@ -146,12 +149,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--display",
-        choices=["minutes", "linear", "log"],
+        choices=["minutes", "linear", "log", "weights"],
         default="log",
         help=(
             "minutes  — colour by raw expected commute time (no 1-10 scale)\n"
             "linear   — 1-10 score using z-scores of raw minutes\n"
-            "log      — 1-10 score using z-scores of log(minutes)  [default]"
+            "log      — 1-10 score using z-scores of log(minutes)  [default]\n"
+            "weights  — destination weights map (separate output file)"
         ),
     )
     parser.add_argument(
@@ -240,25 +244,35 @@ def main() -> None:
         )
         return
 
+    window_suffix = (
+        f"  window={args.hour_from:02d}:00–{args.hour_to:02d}:00"
+        if args.weight_method in ("destinations", "real_world_commuter_destinations")
+        else ""
+    )
     print(
         f"==> display={args.display}  scope={args.scope}"
-        f"  weight_method={args.weight_method}"
-        + (
-            f"  window={args.hour_from:02d}:00–{args.hour_to:02d}:00"
-            if args.weight_method in ("destinations", "real_world_commuter_destinations")
-            else ""
+        f"  weight_method={args.weight_method}{window_suffix}\n"
+    )
+
+    if args.display == "weights":
+        build_weights_map(
+            station_scope=args.scope,
+            weight_method=args.weight_method,
+            start_hour=args.hour_from,
+            end_hour=args.hour_to,
         )
-        + "\n"
-    )
-    build_map(
-        scoring_method=args.display,
-        station_scope=args.scope,
-        weight_method=args.weight_method,
-        start_hour=args.hour_from,
-        end_hour=args.hour_to,
-    )
-    print(f"\nOpening map: {OUTPUT_HTML}")
-    webbrowser.open(OUTPUT_HTML)
+        print(f"\nOpening map: {OUTPUT_WEIGHTS_HTML}")
+        webbrowser.open(OUTPUT_WEIGHTS_HTML)
+    else:
+        build_map(
+            scoring_method=args.display,
+            station_scope=args.scope,
+            weight_method=args.weight_method,
+            start_hour=args.hour_from,
+            end_hour=args.hour_to,
+        )
+        print(f"\nOpening map: {OUTPUT_HTML}")
+        webbrowser.open(OUTPUT_HTML)
 
 
 if __name__ == "__main__":
