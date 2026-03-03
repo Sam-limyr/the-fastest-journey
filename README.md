@@ -75,6 +75,12 @@ calculation. Each method produces a different view of "where people go".
   python analyse.py --from 8 --to 22     # extend into the evening
   ```
 
+- `work_and_leisure` — combines weekday **morning rush** (07:00–09:59)
+  tap-outs × 5 with weekend/public-holiday **daytime** (07:00–18:59) tap-outs × 2.
+  The two components are normalised to 1.0 independently before combining.
+  Unlike `destinations`, the windows are fixed and are not affected by `--from` / `--to`.
+  Useful for capturing a mix of commute-focused weekday flow and leisure-oriented
+  weekend flow.
 - `morning_peak` — uses only weekday morning (7–10 am) tap-out volumes.
   Focuses purely on work destinations; ignores weekend activity entirely.
 - `all_hours_weighted` — sums tap-outs across all hours and both day types,

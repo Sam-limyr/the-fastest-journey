@@ -377,7 +377,7 @@ def build_map(
     year_month : str
         Month to analyse (must have a normalization entry), e.g. "202601".
     weight_method : str
-        "destinations" (default), "morning_peak", or "all_hours_weighted".
+        "destinations" (default), "work_and_leisure", "morning_peak", or "all_hours_weighted".
     scoring_method : str
         "log" (default), "linear", or "minutes" (raw minutes, no 1-10 scale).
     station_scope : str
@@ -756,7 +756,7 @@ def build_weights_map(
     year_month : str
         Month to derive weights from, e.g. "202601".
     weight_method : str
-        "destinations" (default), "morning_peak", or "all_hours_weighted".
+        "destinations" (default), "work_and_leisure", "morning_peak", or "all_hours_weighted".
     station_scope : str
         "residential" (default), "hdb", or "all".
     start_hour : int
@@ -1066,8 +1066,9 @@ window.addEventListener('load', function() {{
     # -----------------------------------------------------------------------
     scope_labels = {"residential": "residential", "hdb": "HDB", "all": "all stations"}
     method_labels = {
-        "destinations":  f"destinations {start_hour:02d}:00–{end_hour:02d}:00",
-        "morning_peak":  "morning peak",
+        "destinations":      f"destinations {start_hour:02d}:00–{end_hour:02d}:00",
+        "work_and_leisure":  "work & leisure (wd 07:00–10:00 + wknd 07:00–19:00)",
+        "morning_peak":      "morning peak",
         "all_hours_weighted": "all-hours weighted",
     }
     title_html = f"""

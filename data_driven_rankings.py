@@ -459,12 +459,17 @@ def get_destination_weights(
         "destinations" (alias "real_world_commuter_destinations") — weekday
             tap-outs × 5 + weekend/PH tap-outs × 2, each in the window
             [start_hour, end_hour), normalised to 1.0 before combining (default).
+        "work_and_leisure" — weekday morning rush (7–10 am) tap-outs × 5 +
+            weekend/PH daytime (7 am–7 pm) tap-outs × 2, with different
+            windows for each day type; start_hour / end_hour are ignored.
         "morning_peak"       — weekday morning (7–10 am) tap-outs only.
         "all_hours_weighted" — all-hours, day-count-weighted tap-outs.
     start_hour : int
         First hour of the tap-out window for the "destinations" method (default 7).
+        Ignored for "work_and_leisure", "morning_peak", and "all_hours_weighted".
     end_hour : int
         Exclusive end hour for the window (default 19, i.e. hours 7–18).
+        Ignored for "work_and_leisure", "morning_peak", and "all_hours_weighted".
     """
     # Accept long-form alias
     if weight_method == "real_world_commuter_destinations":
@@ -481,6 +486,14 @@ def get_destination_weights(
         weekday_df = _get_tap_out_aggregates(volume_df, WEEKDAY, start_hour, end_hour)
         weekend_df = _get_tap_out_aggregates(volume_df, NOT_WEEKDAY, start_hour, end_hour)
         weights = derive_destinations_weights(weekday_df, weekend_df, travel_station_names)
+    elif weight_method == "work_and_leisure":
+        weekday_df = _get_tap_out_aggregates(
+            volume_df, WEEKDAY, WEEKDAY_MORNING_START_HOUR, WEEKDAY_MORNING_END_HOUR
+        )
+        weekend_df = _get_tap_out_aggregates(
+            volume_df, NOT_WEEKDAY, DESTINATIONS_START_HOUR, DESTINATIONS_END_HOUR
+        )
+        weights = derive_destinations_weights(weekday_df, weekend_df, travel_station_names)
     elif weight_method == "morning_peak":
         morning_df = get_weekday_morning_aggregates(volume_df)
         weights = derive_work_destination_weights(morning_df, travel_station_names)
@@ -495,7 +508,7 @@ def get_destination_weights(
     else:
         raise ValueError(
             f"Unknown weight_method: {weight_method!r}. "
-            f"Use 'destinations', 'morning_peak', or 'all_hours_weighted'."
+            f"Use 'destinations', 'work_and_leisure', 'morning_peak', or 'all_hours_weighted'."
         )
 
     return dict(sorted(weights.items(), key=lambda x: x[1], reverse=True))
@@ -586,6 +599,9 @@ def calculate_data_driven_ratings(
         "destinations" (alias "real_world_commuter_destinations") — weekday
             and weekend/PH tap-outs in [start_hour, end_hour) combined 5:2,
             each normalised to 1.0 before combining (default).
+        "work_and_leisure" — weekday morning (7–10 am) tap-outs × 5 +
+                             weekend/PH daytime (7 am–7 pm) tap-outs × 2;
+                             uses fixed windows, ignores start_hour/end_hour.
         "morning_peak"       — weekday morning (7–10 am) tap-out volumes only;
                                focuses purely on work commuters.
         "all_hours_weighted" — all-hours tap-out across both weekday and
@@ -707,10 +723,43 @@ def calculate_data_driven_ratings(
             f"(wd×{weekday_count:.0f} + nwd×{non_weekday_count:.0f}), {year_month}"
         )
 
+    elif weight_method == "work_and_leisure":
+        # Weekday morning (7–10am) tap-outs × 5  +  weekend/PH daytime (7am–7pm) × 2
+        weekday_df = _get_tap_out_aggregates(
+            volume_df, WEEKDAY, WEEKDAY_MORNING_START_HOUR, WEEKDAY_MORNING_END_HOUR
+        )
+        weekend_df = _get_tap_out_aggregates(
+            volume_df, NOT_WEEKDAY, DESTINATIONS_START_HOUR, DESTINATIONS_END_HOUR
+        )
+        if verbose:
+            print("=" * 60)
+            print(
+                f"Top {DIAGNOSTIC_TOP_N} Stations — Work & Leisure"
+                f"  ({year_month})"
+            )
+            print(
+                f"Weekday {WEEKDAY_MORNING_START_HOUR:02d}:00–{WEEKDAY_MORNING_END_HOUR:02d}:00"
+                f" × {DESTINATIONS_WEEKDAY_WEIGHT}"
+                f" + Weekend/PH {DESTINATIONS_START_HOUR:02d}:00–{DESTINATIONS_END_HOUR:02d}:00"
+                f" × {DESTINATIONS_WEEKEND_WEIGHT}"
+                f"  (each normalised independently)"
+            )
+            print("=" * 60)
+        work_weights = derive_destinations_weights(
+            weekday_df, weekend_df, travel_station_names
+        )
+        weight_label = (
+            f"work & leisure "
+            f"(wd {WEEKDAY_MORNING_START_HOUR:02d}:00–{WEEKDAY_MORNING_END_HOUR:02d}:00"
+            f" ×{DESTINATIONS_WEEKDAY_WEIGHT}"
+            f" + wknd {DESTINATIONS_START_HOUR:02d}:00–{DESTINATIONS_END_HOUR:02d}:00"
+            f" ×{DESTINATIONS_WEEKEND_WEIGHT}), {year_month}"
+        )
+
     else:
         raise ValueError(
             f"Unknown weight_method: {weight_method!r}. "
-            f"Use 'destinations', 'morning_peak', or 'all_hours_weighted'."
+            f"Use 'destinations', 'work_and_leisure', 'morning_peak', or 'all_hours_weighted'."
         )
 
     # 5. Filter travel-time matrix to the stations we have weights for.

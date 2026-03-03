@@ -47,6 +47,7 @@ from visualize_scores import build_map, build_weights_map, OUTPUT_HTML, OUTPUT_W
 _WEIGHT_METHOD_LABELS = {
     "destinations":                    "real-world destinations (wd ×5 + wknd ×2)",
     "real_world_commuter_destinations": "real-world destinations (wd ×5 + wknd ×2)",
+    "work_and_leisure":                "work & leisure (wd 07:00–10:00 ×5 + wknd 07:00–19:00 ×2)",
     "morning_peak":                    "morning peak (weekday 7–10am)",
     "all_hours_weighted":              "all-hours weighted",
 }
@@ -54,6 +55,7 @@ _WEIGHT_METHOD_LABELS = {
 _WEIGHT_METHOD_CHOICES = [
     "destinations",
     "real_world_commuter_destinations",
+    "work_and_leisure",
     "morning_peak",
     "all_hours_weighted",
 ]
@@ -180,6 +182,9 @@ def main() -> None:
             "      Weekday tap-outs × 5 + weekend/PH tap-outs × 2 in the\n"
             "      time window set by --from / --to, each normalised to 1.0\n"
             "      before combining.  [default]\n"
+            "  work_and_leisure\n"
+            "      Weekday 7–10am tap-outs × 5 + weekend/PH 7am–7pm × 2.\n"
+            "      Fixed windows; --from / --to are ignored.\n"
             "  morning_peak\n"
             "      Weekday morning (7–10am) tap-outs only.\n"
             "  all_hours_weighted\n"
