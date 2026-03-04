@@ -18,20 +18,58 @@ python analyse.py
 This generates `mrt_commute_scores.html` and opens it automatically in your
 browser.
 
+**Sample queries:**
+
+```
+python analyse.py --scope hdb
+```
+Scores only stations near HDB estates — useful if you're looking specifically
+for public housing areas.
+
+```
+python analyse.py --weekday --from 7 --to 10 --weekend --from 10 --to 22 --weekend-weight-ratio 2
+```
+Weights destinations using weekday morning rush (7–10 am) and weekend
+afternoon/evening (10 am–10 pm) tap-outs, with weekend data counting twice as
+heavily as weekday — suited to a leisure-heavy lifestyle.
+
+```
+python analyse.py --score minutes --scope residential
+```
+Colours stations by raw expected commute minutes instead of a 1–10 scale,
+making absolute differences between stations easier to read.
+
+```
+python analyse.py --score weights --weight-method morning_peak
+```
+Opens a separate destination-weights map showing which stations attract the
+most weekday morning commuters — i.e. where people actually work.
+
+```
+python analyse.py --weights --top 15 --weekday --from 7 --to 10
+```
+Prints the 15 highest-weighted destination stations for the weekday morning
+rush window, without opening any map.
+
 ### Options
 
 ```
 python analyse.py [--score <mode>] [--scope <scope>]
                   [--weight-method <method>] [--from <hour>] [--to <hour>]
+                  [--weekday [--from <hour>] [--to <hour>]]
+                  [--weekend [--from <hour>] [--to <hour>]]
+                  [--weekend-weight-ratio <ratio>]
 ```
 
 | Flag | Choices / type | Default | Description |
 |------|---------------|---------|-------------|
 | `--score` | `log`, `linear`, `minutes`, `weights` | `log` | How scores are computed and coloured |
-| `--scope` | `residential`, `hdb`, `all` | `residential` | Which stations appear on the map |
-| `--weight-method` | `destinations`, `work_and_leisure`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived |
-| `--from` | integer (0–23) | `7` | Start hour of the tap-out window (for `destinations` only) |
-| `--to` | integer (0–23) | `19` | Exclusive end hour of the window (for `destinations` only) |
+| `--scope` | `residential`, `hdb`, `all` | `all` | Which stations appear on the map |
+| `--weight-method` | `destinations`, `work_and_leisure`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived (overridden by `--weekday`/`--weekend`) |
+| `--from` / `--to` | integer (0–23) | `7` / `19` | Time window for `destinations` weighting; scoped to a day type when preceded by `--weekday`/`--weekend` |
+| `--weekday` | flag | — | Enable a custom weekday tap-out component; `--from`/`--to` immediately following set its window |
+| `--weekend` | flag | — | Enable a custom weekend/PH tap-out component; `--from`/`--to` immediately following set its window |
+| `--weekend-weight-ratio` | float | `0.4` | Weight of the weekend component relative to weekday (default 0.4 = 2/5 ratio) |
 
 **Score modes**
 
@@ -48,9 +86,9 @@ Controls which stations appear on the map. The underlying commute calculation
 always uses the full network as work destinations — scope only filters the
 output.
 
-- `residential` — all stations near residential areas (default)
+- `all` — every station in the travel-time dataset  **(default)**
+- `residential` — all stations near residential areas
 - `hdb` — stations near HDB estates only (subset of residential)
-- `all` — every station in the travel-time dataset
 
 All 9 combinations of `--score` and `--scope` are valid.
 
@@ -115,6 +153,9 @@ each station contributes to the commute-score centroid.
 ```
 python analyse.py --weights [--top N] [--bottom N]
                   [--weight-method <method>] [--from <hour>] [--to <hour>]
+                  [--weekday [--from <hour>] [--to <hour>]]
+                  [--weekend [--from <hour>] [--to <hour>]]
+                  [--weekend-weight-ratio <ratio>]
 ```
 
 Prints the normalised tap-out weights that form the scoring centroid — i.e.
@@ -128,9 +169,43 @@ with a running cumulative total. `--score` and `--scope` are ignored.
 | `--bottom N` | Show only the N lowest-weighted stations (ascending) |
 | `--weight-method` | Which weight method to inspect (default: `destinations`) |
 | `--from` / `--to` | Time window for `destinations` weighting (default: 7 / 19) |
+| `--weekday` | Enable a custom weekday component; `--from`/`--to` following it set its window |
+| `--weekend` | Enable a custom weekend/PH component; `--from`/`--to` following it set its window |
+| `--weekend-weight-ratio` | Weight of the weekend component relative to weekday (default `0.4` = 2/5 ratio) |
 
 `--top` and `--bottom` can be combined to print both ends in one run.
 Either flag also implies `--weights`, so `--weights` itself can be omitted.
+`--weekday`/`--weekend` override `--weight-method` with `custom` in both map and weights mode.
+
+**Custom day-type windows** — `--weekday` and `--weekend` let you define the
+tap-out window for each day type independently.  At least one must be given.
+The `--from`/`--to` that **immediately follow** a day-type flag are scoped to
+that flag's component.  These flags work in both map mode and weights mode.
+
+```
+# Map — weekday daytime only, 7 am – 7 pm
+python analyse.py --weekday --from 7 --to 19
+
+# Map — weekday morning + weekend morning (default 0.4 ratio)
+python analyse.py --weekday --from 7 --to 10 --weekend --from 7 --to 12
+
+# Map — evening emphasis, weekend twice as heavy
+python analyse.py --weekday --from 9 --to 18 --weekend --from 7 --to 19 \
+                  --weekend-weight-ratio 2
+
+# Weights table — weekday only, 3 pm – 9 pm
+python analyse.py --weights --weekday --from 15 --to 21
+
+# Weights table — weekday 12 pm – 8 pm  +  weekend/PH 7 am – 10 am
+python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10
+
+# Same windows, but weekend twice as heavy as weekday
+python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10 \
+                  --weekend-weight-ratio 2
+```
+
+Each component is normalised to 1.0 independently before blending.
+When `--weekday`/`--weekend` are used, `--weight-method` is overridden with `custom`.
 
 ---
 

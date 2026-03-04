@@ -368,6 +368,9 @@ def build_map(
     station_scope: str = "residential",
     start_hour: int = DESTINATIONS_START_HOUR,
     end_hour: int = DESTINATIONS_END_HOUR,
+    custom_weekday_window: tuple[int, int] | None = None,
+    custom_weekend_window: tuple[int, int] | None = None,
+    custom_weekend_weight_ratio: float = 0.4,
 ) -> str:
     """
     Compute commute scores, fetch station coordinates, and write an HTML map.
@@ -377,7 +380,8 @@ def build_map(
     year_month : str
         Month to analyse (must have a normalization entry), e.g. "202601".
     weight_method : str
-        "destinations" (default), "work_and_leisure", "morning_peak", or "all_hours_weighted".
+        "destinations" (default), "work_and_leisure", "morning_peak", "all_hours_weighted",
+        or "custom".
     scoring_method : str
         "log" (default), "linear", or "minutes" (raw minutes, no 1-10 scale).
     station_scope : str
@@ -386,14 +390,26 @@ def build_map(
         For "destinations": first hour of the tap-out window (default 7).
     end_hour : int
         For "destinations": exclusive end hour (default 19, i.e. hours 7–18).
+    custom_weekday_window : (int, int) or None
+        For "custom": (from_hour, to_hour) for weekday tap-outs.
+    custom_weekend_window : (int, int) or None
+        For "custom": (from_hour, to_hour) for weekend/PH tap-outs.
+    custom_weekend_weight_ratio : float
+        For "custom": weekend weight relative to weekday (default 0.4).
 
     Returns the path of the written HTML file.
     """
     print("Computing commute scores …")
+    _custom_kwargs = dict(
+        custom_weekday_window=custom_weekday_window,
+        custom_weekend_window=custom_weekend_window,
+        custom_weekend_weight_ratio=custom_weekend_weight_ratio,
+    )
     if scoring_method == "minutes":
         raw_df = calculate_data_driven_ratings(
             year_month=year_month, station_scope="all", verbose=False,
             weight_method=weight_method, start_hour=start_hour, end_hour=end_hour,
+            **_custom_kwargs,
         )
         if station_scope == "residential":
             raw_df = raw_df[raw_df.index.isin(set(get_residential_mrt_stations()))]
@@ -411,7 +427,7 @@ def build_map(
         scores_df = calculate_commute_scores(
             year_month=year_month, station_scope=station_scope,
             weight_method=weight_method, scoring_method=scoring_method, verbose=False,
-            start_hour=start_hour, end_hour=end_hour,
+            start_hour=start_hour, end_hour=end_hour, **_custom_kwargs,
         )
         display_label = f"{scoring_method} score"
 
@@ -742,6 +758,9 @@ def build_weights_map(
     station_scope: str = "residential",
     start_hour: int = DESTINATIONS_START_HOUR,
     end_hour: int = DESTINATIONS_END_HOUR,
+    custom_weekday_window: tuple[int, int] | None = None,
+    custom_weekend_window: tuple[int, int] | None = None,
+    custom_weekend_weight_ratio: float = 0.4,
 ) -> str:
     """
     Build an interactive HTML map showing the destination weights used for the
@@ -756,13 +775,20 @@ def build_weights_map(
     year_month : str
         Month to derive weights from, e.g. "202601".
     weight_method : str
-        "destinations" (default), "work_and_leisure", "morning_peak", or "all_hours_weighted".
+        "destinations" (default), "work_and_leisure", "morning_peak", "all_hours_weighted",
+        or "custom".
     station_scope : str
         "residential" (default), "hdb", or "all".
     start_hour : int
         For "destinations": start of the tap-out window (default 7).
     end_hour : int
         For "destinations": exclusive end of the window (default 19).
+    custom_weekday_window : (int, int) or None
+        For "custom": (from_hour, to_hour) for weekday tap-outs.
+    custom_weekend_window : (int, int) or None
+        For "custom": (from_hour, to_hour) for weekend/PH tap-outs.
+    custom_weekend_weight_ratio : float
+        For "custom": weekend weight relative to weekday (default 0.4).
 
     Returns the path of the written HTML file.
     """
@@ -774,6 +800,9 @@ def build_weights_map(
         weight_method=weight_method,
         start_hour=start_hour,
         end_hour=end_hour,
+        custom_weekday_window=custom_weekday_window,
+        custom_weekend_window=custom_weekend_window,
+        custom_weekend_weight_ratio=custom_weekend_weight_ratio,
     )
 
     # Filter to the requested scope (weights are computed over the full network)
@@ -1065,11 +1094,22 @@ window.addEventListener('load', function() {{
     # Title
     # -----------------------------------------------------------------------
     scope_labels = {"residential": "residential", "hdb": "HDB", "all": "all stations"}
+    _custom_parts = []
+    if custom_weekday_window is not None:
+        _custom_parts.append(
+            f"wd {custom_weekday_window[0]:02d}:00–{custom_weekday_window[1]:02d}:00 ×1.0"
+        )
+    if custom_weekend_window is not None:
+        _custom_parts.append(
+            f"wknd {custom_weekend_window[0]:02d}:00–{custom_weekend_window[1]:02d}:00"
+            f" ×{custom_weekend_weight_ratio}"
+        )
     method_labels = {
-        "destinations":      f"destinations {start_hour:02d}:00–{end_hour:02d}:00",
-        "work_and_leisure":  "work & leisure (wd 07:00–10:00 + wknd 07:00–19:00)",
-        "morning_peak":      "morning peak",
+        "destinations":       f"destinations {start_hour:02d}:00–{end_hour:02d}:00",
+        "work_and_leisure":   "work & leisure (wd 07:00–10:00 + wknd 07:00–19:00)",
+        "morning_peak":       "morning peak",
         "all_hours_weighted": "all-hours weighted",
+        "custom":             "custom [" + " + ".join(_custom_parts) + "]",
     }
     title_html = f"""
     <div style="
