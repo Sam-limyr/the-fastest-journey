@@ -36,6 +36,8 @@ Examples:
     python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10
     python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10 --weekend-weight-ratio 2
     python analyse.py --weights --weight-method all_hours_weighted
+    python analyse.py --tap in
+    python analyse.py --tap both --score weights
 """
 
 from __future__ import annotations
@@ -136,6 +138,7 @@ def cmd_weights(
     custom_weekday_window: tuple[int, int] | None = None,
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
+    tap: str = "out",
 ) -> None:
     """Print destination weights, optionally filtered to the top and/or bottom N."""
     # If custom windows are given, override weight_method regardless of --weight-method
@@ -150,6 +153,7 @@ def cmd_weights(
         custom_weekday_window=custom_weekday_window,
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=custom_weekend_weight_ratio,
+        tap=tap,
     )
     year, month = ANALYSIS_MONTH[:4], ANALYSIS_MONTH[4:]
     all_rows = [(rank, stn, w) for rank, (stn, w) in enumerate(weights.items(), 1)]
@@ -369,6 +373,17 @@ def main() -> None:
         default=None,
         help="With --weights: show only the N lowest-weighted stations (ascending).",
     )
+    parser.add_argument(
+        "--tap",
+        choices=["out", "in", "both"],
+        default="out",
+        help=(
+            "Which passenger flow direction to use as destination weights.\n"
+            "out   — tap-outs (arrivals at destination)  [default]\n"
+            "in    — tap-ins (departures from destination)\n"
+            "both  — sum of tap-ins and tap-outs"
+        ),
+    )
     args = parser.parse_args(processed_argv)
 
     custom_weekday_window = (args.weekday_from, args.weekday_to) if args.weekday else None
@@ -388,6 +403,7 @@ def main() -> None:
         custom_weekday_window=custom_weekday_window,
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=args.weekend_weight_ratio,
+        tap=args.tap,
     )
 
     if in_weights_mode:

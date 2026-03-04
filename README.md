@@ -51,6 +51,13 @@ python analyse.py --weights --top 15 --weekday --from 7 --to 10
 Prints the 15 highest-weighted destination stations for the weekday morning
 rush window, without opening any map.
 
+```
+python analyse.py --tap in --score weights --weight-method morning_peak
+```
+Shows a destination-weights map based on tap-ins during the morning peak —
+revealing which stations people depart from rather than arrive at, i.e. the
+residential hubs commuters leave from each morning.
+
 ### Options
 
 ```
@@ -59,6 +66,7 @@ python analyse.py [--score <mode>] [--scope <scope>]
                   [--weekday [--from <hour>] [--to <hour>]]
                   [--weekend [--from <hour>] [--to <hour>]]
                   [--weekend-weight-ratio <ratio>]
+                  [--tap <direction>]
 ```
 
 | Flag | Choices / type | Default | Description |
@@ -67,9 +75,10 @@ python analyse.py [--score <mode>] [--scope <scope>]
 | `--scope` | `residential`, `hdb`, `all` | `all` | Which stations appear on the map |
 | `--weight-method` | `destinations`, `work_and_leisure`, `morning_peak`, `all_hours_weighted` | `destinations` | How destination weights are derived (overridden by `--weekday`/`--weekend`) |
 | `--from` / `--to` | integer (0–23) | `7` / `19` | Time window for `destinations` weighting; scoped to a day type when preceded by `--weekday`/`--weekend` |
-| `--weekday` | flag | — | Enable a custom weekday tap-out component; `--from`/`--to` immediately following set its window |
-| `--weekend` | flag | — | Enable a custom weekend/PH tap-out component; `--from`/`--to` immediately following set its window |
+| `--weekday` | flag | — | Enable a custom weekday component; `--from`/`--to` immediately following set its window |
+| `--weekend` | flag | — | Enable a custom weekend/PH component; `--from`/`--to` immediately following set its window |
 | `--weekend-weight-ratio` | float | `0.4` | Weight of the weekend component relative to weekday (default 0.4 = 2/5 ratio) |
+| `--tap` | `out`, `in`, `both` | `out` | Which passenger flow direction to use as destination weights |
 
 **Score modes**
 
@@ -126,6 +135,31 @@ calculation. Each method produces a different view of "where people go".
   month.  Reflects overall station throughput including evening and mixed-use
   traffic.
 
+**Tap direction**
+
+Controls which side of each station's passenger flow is used to derive
+destination weights.  All weight methods and custom windows are affected.
+
+- `out` — tap-outs (passengers *arriving* at a station). Models the set of
+  places people travel *to*.  This is the default and the basis for all
+  commute-score analysis: busy tap-out stations are assumed to be likely
+  destinations.
+- `in` — tap-ins (passengers *departing* from a station). Captures where
+  people start their journeys from.  Useful for understanding origin patterns
+  (e.g. which stations serve as residential hubs at a given time of day).
+- `both` — sum of tap-ins and tap-outs.  Reflects total passenger throughput
+  regardless of direction.
+
+```
+python analyse.py --tap out     # default — arrivals at destination
+python analyse.py --tap in      # departures; origin-centric view
+python analyse.py --tap both    # total throughput
+```
+
+`--tap` works in all modes: commute score map, destination weights map, and
+weights table.  It can be combined with any `--weight-method`,
+`--weekday`/`--weekend`, or `--score` flag.
+
 ### Destination weights map
 
 ```
@@ -172,6 +206,7 @@ with a running cumulative total. `--score` and `--scope` are ignored.
 | `--weekday` | Enable a custom weekday component; `--from`/`--to` following it set its window |
 | `--weekend` | Enable a custom weekend/PH component; `--from`/`--to` following it set its window |
 | `--weekend-weight-ratio` | Weight of the weekend component relative to weekday (default `0.4` = 2/5 ratio) |
+| `--tap` | Passenger flow direction: `out` (default), `in`, or `both` |
 
 `--top` and `--bottom` can be combined to print both ends in one run.
 Either flag also implies `--weights`, so `--weights` itself can be omitted.
