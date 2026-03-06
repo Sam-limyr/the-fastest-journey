@@ -7,10 +7,19 @@ data-driven destination weights.
 The output is an interactive HTML map where each station is labelled with a
 score on a red-to-green colour scale.
 
+HDB estate MRTs rated on a normalized scale of 1-10:
+![HDB ratings](app_screenshots/hdb_log_score.png)
+
+Where do people tap out on weekday mornings?
+![Morning Peak Weights](app_screenshots/morning_peak_weights_filtered.png)
+
 ---
 
 ## Quickstart
 
+Preferably set up a virtual environment, then install requirements from `requirements.txt`.
+
+Then run:
 ```
 python analyse.py
 ```
