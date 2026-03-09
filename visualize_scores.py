@@ -38,9 +38,9 @@ from data_driven_rankings import (
 _REPO_ROOT            = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_HTML           = os.path.join(_REPO_ROOT, "mrt_commute_scores.html")
 OUTPUT_WEIGHTS_HTML   = os.path.join(_REPO_ROOT, "mrt_destination_weights.html")
-COORDS_CACHE_PATH     = os.path.join(_REPO_ROOT, "station_coords_cache.json")
-MRT_LINES_CACHE_PATH  = os.path.join(_REPO_ROOT, "mrt_lines_cache.geojson")
-FUTURE_MRT_CACHE_PATH = os.path.join(_REPO_ROOT, "future_mrt_cache.geojson")
+COORDS_CACHE_PATH     = os.path.join(_REPO_ROOT, "data_cache", "station_coords_cache.json")
+MRT_LINES_CACHE_PATH  = os.path.join(_REPO_ROOT, "data_cache", "mrt_lines_cache.geojson")
+FUTURE_MRT_CACHE_PATH = os.path.join(_REPO_ROOT, "data_cache", "future_mrt_cache.geojson")
 
 API_KEY = "RomoaQ6ATPuLJ2PyRmXi2g=="
 
@@ -205,6 +205,7 @@ def fetch_station_coords() -> dict[str, tuple[float, float]]:
 
     coords.update(_MANUAL_COORDS)
 
+    os.makedirs(os.path.dirname(COORDS_CACHE_PATH), exist_ok=True)
     with open(COORDS_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(coords, f, indent=2)
     print(f"Coordinates cached to: {COORDS_CACHE_PATH}")
@@ -286,6 +287,7 @@ def fetch_mrt_lines() -> dict | None:
         print("[!] Overpass returned no MRT line features.")
         return None
 
+    os.makedirs(os.path.dirname(MRT_LINES_CACHE_PATH), exist_ok=True)
     with open(MRT_LINES_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(geojson, f)
     print(f"MRT lines cached ({len(geojson['features'])} segments) → {MRT_LINES_CACHE_PATH}")
@@ -320,6 +322,7 @@ def fetch_future_mrt_lines() -> dict | None:
         print("[!] No future MRT line features found in Overpass response.")
         return None
 
+    os.makedirs(os.path.dirname(FUTURE_MRT_CACHE_PATH), exist_ok=True)
     with open(FUTURE_MRT_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(geojson, f)
     print(f"Future MRT lines cached ({len(geojson['features'])} segments) → {FUTURE_MRT_CACHE_PATH}")

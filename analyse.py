@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import sys
 import webbrowser
 
@@ -436,7 +437,10 @@ def main() -> None:
             **_custom_kwargs,
         )
         print(f"\nOpening map: {OUTPUT_WEIGHTS_HTML}")
-        webbrowser.open(OUTPUT_WEIGHTS_HTML)
+        html_path = OUTPUT_WEIGHTS_HTML
+        if platform.system() != 'Windows':
+            html_path = "file://" + html_path
+        webbrowser.open(html_path)
     else:
         build_map(
             scoring_method=args.score,
@@ -447,7 +451,10 @@ def main() -> None:
             **_custom_kwargs,
         )
         print(f"\nOpening map: {OUTPUT_HTML}")
-        webbrowser.open(OUTPUT_HTML)
+        html_path = OUTPUT_HTML
+        if platform.system() != 'Windows':
+            html_path = "file://" + html_path
+        webbrowser.open(html_path)
 
 
 if __name__ == "__main__":

@@ -3,3 +3,9 @@
 __pycache__/*
 mrt_distance/__pycache__/*
 mrt_volume/__pycache__/*
+
+poetry.lock
+
+data_cache/
+
+datamall_api.txt

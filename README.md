@@ -15,14 +15,29 @@ Where do people tap out on weekday mornings?
 
 ---
 
-## Quickstart
 
-Preferably set up a virtual environment, then install requirements from `requirements.txt`.
+
+**Requirements**
+
+This project uses Poetry for dependency management.
+
+1. Install Poetry: Run `pip install poetry`
+
+2. Navigate to the project directory and run:
+
+   ```
+   poetry install
+   ```
+
+   This will create a virtual environment and install all dependencies.
 
 Then run:
+
 ```
-python analyse.py
+poetry run python analyse.py
 ```
+
+Alternatively, activate the virtual environment with `poetry shell` and then run `python analyse.py`.
 
 This generates `mrt_commute_scores.html` and opens it automatically in your
 browser.
@@ -283,14 +298,14 @@ on the next run.
 
 | Cache file | Source | When to refresh |
 |------------|--------|-----------------|
-| `station_coords_cache.json` | LTA DataMall shapefile | New stations open or coordinates change |
-| `mrt_lines_cache.geojson` | OpenStreetMap (Overpass API) | MRT network map data has been updated |
-| `future_mrt_cache.geojson` | OpenStreetMap (Overpass API) | Construction/proposed lines have changed |
+| `data_cache/station_coords_cache.json` | LTA DataMall shapefile | New stations open or coordinates change |
+| `data_cache/mrt_lines_cache.geojson` | OpenStreetMap (Overpass API) | MRT network map data has been updated |
+| `data_cache/future_mrt_cache.geojson` | OpenStreetMap (Overpass API) | Construction/proposed lines have changed |
 
 To delete all caches at once:
 
 ```bash
-rm station_coords_cache.json mrt_lines_cache.geojson future_mrt_cache.geojson
+rm data_cache/station_coords_cache.json data_cache/mrt_lines_cache.geojson data_cache/future_mrt_cache.geojson
 ```
 
 ---
@@ -306,8 +321,8 @@ rm station_coords_cache.json mrt_lines_cache.geojson future_mrt_cache.geojson
 | `mrt_volume/explore.py` | Loads and normalises the LTA passenger volume CSV. |
 | `mrt_distance/travel_times.csv` | ~20 k rows of pairwise MRT travel times. |
 | `mrt_volume/data/station_volumes/transport_node_train_202506.csv` | Hourly tap-in/out volumes (June 2025). |
-| `station_coords_cache.json` | Cached WGS84 station coordinates (auto-generated; delete to refresh). |
-| `mrt_lines_cache.geojson` | Cached MRT/LRT track geometries from OpenStreetMap (auto-generated; delete to refresh). |
-| `future_mrt_cache.geojson` | Cached under-construction/proposed lines from OpenStreetMap (auto-generated; delete to refresh). |
+| `data_cache/station_coords_cache.json` | Cached WGS84 station coordinates (auto-generated; delete to refresh). |
+| `data_cache/mrt_lines_cache.geojson` | Cached MRT/LRT track geometries from OpenStreetMap (auto-generated; delete to refresh). |
+| `data_cache/future_mrt_cache.geojson` | Cached under-construction/proposed lines from OpenStreetMap (auto-generated; delete to refresh). |
 | `mrt_commute_scores.html` | Generated commute score map (not committed). |
 | `mrt_destination_weights.html` | Generated destination weights map (not committed). |
