@@ -375,6 +375,7 @@ def build_map(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> str:
     """
     Compute commute scores, fetch station coordinates, and write an HTML map.
@@ -402,6 +403,8 @@ def build_map(
         For "custom": weekend weight relative to weekday (default 0.4).
     tap : str
         "out" (default), "in", or "both".
+    custom_weights : dict[str, float] or None
+        Custom weights to use instead of deriving from data.
 
     Returns the path of the written HTML file.
     """
@@ -411,6 +414,7 @@ def build_map(
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=custom_weekend_weight_ratio,
         tap=tap,
+        custom_weights=custom_weights,
     )
     if scoring_method == "minutes":
         raw_df = calculate_data_driven_ratings(
@@ -769,6 +773,7 @@ def build_weights_map(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> str:
     """
     Build an interactive HTML map showing the destination weights used for the
@@ -799,6 +804,8 @@ def build_weights_map(
         For "custom": weekend weight relative to weekday (default 0.4).
     tap : str
         "out" (default), "in", or "both".
+    custom_weights : dict[str, float] or None
+        Custom weights to use instead of deriving from data.
 
     Returns the path of the written HTML file.
     """
@@ -814,6 +821,7 @@ def build_weights_map(
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=custom_weekend_weight_ratio,
         tap=tap,
+        custom_weights=custom_weights,
     )
 
     # Filter to the requested scope (weights are computed over the full network)

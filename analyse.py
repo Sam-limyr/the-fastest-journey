@@ -12,11 +12,13 @@ Usage:
                       [--weekday [--from <hour>] [--to <hour>]]
                       [--weekend [--from <hour>] [--to <hour>]]
                       [--weekend-weight-ratio <ratio>]
+                      [--use-custom-weights]
     python analyse.py --weights [--top N] [--bottom N]
                       [--weight-method <method>] [--from <hour>] [--to <hour>]
                       [--weekday [--from <hour>] [--to <hour>]]
                       [--weekend [--from <hour>] [--to <hour>]]
                       [--weekend-weight-ratio <ratio>]
+                      [--use-custom-weights]
 
 Examples:
     python analyse.py
@@ -25,6 +27,7 @@ Examples:
     python analyse.py --score linear --scope hdb
     python analyse.py --score weights
     python analyse.py --weight-method morning_peak
+    python analyse.py --use-custom-weights
     python analyse.py --from 8 --to 22
     python analyse.py --weekday --from 7 --to 19
     python analyse.py --weekday --from 7 --to 19 --weekend --from 7 --to 12
@@ -36,6 +39,7 @@ Examples:
     python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10
     python analyse.py --weights --weekday --from 12 --to 20 --weekend --from 7 --to 10 --weekend-weight-ratio 2
     python analyse.py --weights --weight-method all_hours_weighted
+    python analyse.py --weights --use-custom-weights
     python analyse.py --tap in
     python analyse.py --tap both --score weights
 """
@@ -140,6 +144,7 @@ def cmd_weights(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> None:
     """Print destination weights, optionally filtered to the top and/or bottom N."""
     # If custom windows are given, override weight_method regardless of --weight-method
@@ -155,12 +160,15 @@ def cmd_weights(
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=custom_weekend_weight_ratio,
         tap=tap,
+        custom_weights=custom_weights,
     )
     year, month = ANALYSIS_MONTH[:4], ANALYSIS_MONTH[4:]
     all_rows = [(rank, stn, w) for rank, (stn, w) in enumerate(weights.items(), 1)]
     total = len(all_rows)
 
-    if weight_method == "custom":
+    if custom_weights is not None:
+        method_label = "custom manual weights"
+    elif weight_method == "custom":
         parts = []
         if custom_weekday_window is not None:
             parts.append(
@@ -385,6 +393,15 @@ def main() -> None:
             "both  — sum of tap-ins and tap-outs"
         ),
     )
+    parser.add_argument(
+        "--use-custom-weights",
+        action="store_true",
+        help=(
+            "Use custom manually defined destination weights from get_weights() "
+            "instead of data-driven weights. Overrides --weight-method."
+        ),
+    )
+
     args = parser.parse_args(processed_argv)
 
     custom_weekday_window = (args.weekday_from, args.weekday_to) if args.weekday else None
@@ -393,6 +410,13 @@ def main() -> None:
     # When custom windows are provided, override weight_method to "custom"
     has_custom = custom_weekday_window is not None or custom_weekend_window is not None
     weight_method = "custom" if has_custom else args.weight_method
+
+    # Handle custom weights override
+    custom_weights = None
+    if args.use_custom_weights:
+        from mrt_distance.mrt_distance import get_weights
+        custom_weights = get_weights()
+        weight_method = "custom"  # Override to custom when using custom weights
 
     in_weights_mode = (
         args.weights
@@ -405,6 +429,7 @@ def main() -> None:
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=args.weekend_weight_ratio,
         tap=args.tap,
+        custom_weights=custom_weights,
     )
 
     if in_weights_mode:

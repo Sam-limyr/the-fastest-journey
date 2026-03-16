@@ -439,8 +439,11 @@ def get_weights():
         }
     }
 
+    weights_to_use = possible_general_raw_percentage_weights
+    # weights_to_use = raw_percentage_weights
+
     percentage_weights = defaultdict(float)
-    for category_name, category_weights in raw_percentage_weights.items():
+    for category_name, category_weights in weights_to_use.items():
         for station_name, weight in category_weights.items():
             percentage_weights[station_name] += weight
 

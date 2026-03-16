@@ -533,6 +533,7 @@ def get_destination_weights(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """
     Return the normalised work-destination weights used as the centroid for
@@ -579,6 +580,10 @@ def get_destination_weights(
         "both" — sum of tap-in and tap-out volumes.
         Note: "all_hours_weighted" always uses tap-out volumes regardless of
         this parameter.
+    custom_weights : dict[str, float] or None
+        Custom weights to use instead of deriving from data. If provided,
+        this overrides all other weight_method logic. Weights should be
+        percentages summing to 100.0; they will be normalized internally.
     """
     # Accept long-form alias
     if weight_method == "real_world_commuter_destinations":
@@ -590,6 +595,14 @@ def get_destination_weights(
     volume_df = pd.read_csv(processed_path)
     travel_times = read_travel_time_data()
     travel_station_names = set(travel_times[COLUMN_FROM_STATION_NAME].unique())
+
+    # If custom weights provided, use them instead of deriving from data
+    if custom_weights is not None:
+        total = sum(custom_weights.values())
+        normalized = {k: v / total for k, v in custom_weights.items()}
+        filtered = {k: v for k, v in normalized.items() if k in travel_station_names}
+        remaining_total = sum(filtered.values())
+        return {k: v / remaining_total for k, v in filtered.items()}
 
     if weight_method == "destinations":
         weekday_df = _get_tap_out_aggregates(volume_df, WEEKDAY, start_hour, end_hour, tap)
@@ -722,6 +735,7 @@ def calculate_data_driven_ratings(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """
     Compute and (optionally) print station rankings by expected commute time.
@@ -770,6 +784,10 @@ def calculate_data_driven_ratings(
         "in"   — tap-in volumes (departures).
         "both" — sum of tap-in and tap-out volumes.
         Note: "all_hours_weighted" always uses tap-out regardless of this parameter.
+    custom_weights : dict[str, float] or None
+        Custom weights to use instead of deriving from data. If provided,
+        this overrides weight_method. Weights should be percentages summing
+        to 100.0; they will be normalized internally.
 
     Reads from the pre-processed daily-average CSV for the given month.
     Run write_processed_daily_averages(year_month) first if the file does not exist.
@@ -787,7 +805,15 @@ def calculate_data_driven_ratings(
     travel_times = read_travel_time_data()
     travel_station_names = set(travel_times[COLUMN_FROM_STATION_NAME].unique())
 
-    if weight_method == "destinations":
+    # Handle custom weights if provided
+    if custom_weights is not None:
+        total = sum(custom_weights.values())
+        normalized = {k: v / total for k, v in custom_weights.items()}
+        filtered = {k: v for k, v in normalized.items() if k in travel_station_names}
+        remaining_total = sum(filtered.values())
+        work_weights = {k: v / remaining_total for k, v in filtered.items()}
+        weight_label = "custom manual weights"
+    elif weight_method == "destinations":
         # Weekday + weekend/PH tap volumes in the same [start_hour, end_hour) window,
         # each normalised to 1.0 then combined DESTINATIONS_WEEKDAY_WEIGHT:DESTINATIONS_WEEKEND_WEIGHT
         weekday_df = _get_tap_out_aggregates(volume_df, WEEKDAY, start_hour, end_hour, tap)
@@ -1159,6 +1185,7 @@ def calculate_commute_scores(
     custom_weekend_window: tuple[int, int] | None = None,
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """
     Assign each MRT station a 1-10 commute score based on its expected
@@ -1198,6 +1225,9 @@ def calculate_commute_scores(
         "out"  — tap-outs (arrivals at destination); default.
         "in"   — tap-ins (departures from destination).
         "both" — sum of tap-ins and tap-outs.
+    custom_weights : dict[str, float] or None
+        Custom weights to use instead of deriving from data. If provided,
+        overrides weight_method. Weights are normalized internally.
 
     Returns a DataFrame indexed by station name with columns:
         commute_score, expected_commute_minutes
@@ -1216,6 +1246,7 @@ def calculate_commute_scores(
         custom_weekend_window=custom_weekend_window,
         custom_weekend_weight_ratio=custom_weekend_weight_ratio,
         tap=tap,
+        custom_weights=custom_weights,
     )
 
     # Filter to scope — expected commute minutes are the same for each station

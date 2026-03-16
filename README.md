@@ -76,6 +76,13 @@ Prints the 15 highest-weighted destination stations for the weekday morning
 rush window, without opening any map.
 
 ```
+python analyse.py --use-custom-weights
+```
+Uses manually defined destination weights from `get_weights()` in
+`mrt_distance/mrt_distance.py` instead of data-driven weights. Useful for
+customizing the scoring based on personal preferences or specific scenarios.
+
+```
 python analyse.py --tap in --score weights --weight-method morning_peak
 ```
 Shows a destination-weights map based on tap-ins during the morning peak —
