@@ -1,0 +1,144 @@
+station_name,shopping_mall_tier,mall_name
+Admiralty,SMALL_LOCAL,Kampung Admiralty
+Aljunied,NONE,N/A
+Ang Mo Kio,SMALL_REGIONAL,AMK Hub
+Bartley,NONE,N/A
+Bayfront,NATIONAL,The Shoppes at Marina Bay Sands
+Bayshore,NONE,N/A
+Beauty World,SMALL_LOCAL,Beauty World Centre
+Bedok,LARGE_REGIONAL,Bedok Mall
+Bedok North,NONE,N/A
+Bedok Reservoir,NONE,N/A
+Bencoolen,LARGE_LOCAL,Sunshine Plaza
+Bendemeer,NONE,N/A
+Bishan,SMALL_REGIONAL,Junction 8
+Boon Keng,NONE,N/A
+Boon Lay,LARGE_REGIONAL,Jurong Point
+Botanic Gardens,NONE,N/A
+Braddell,NONE,N/A
+Bras Basah,SMALL_LOCAL,Bras Basah Complex
+Bright Hill,NONE,N/A
+Buangkok,SMALL_LOCAL,Sengkang Grand Mall
+Bugis,NATIONAL,Bugis Junction
+Bukit Batok,LARGE_LOCAL,West Mall
+Bukit Gombak,NONE,N/A
+Bukit Panjang,LARGE_LOCAL,Hillion Mall
+Buona Vista,LARGE_LOCAL,The Star Vista
+Caldecott,NONE,N/A
+Canberra,SMALL_LOCAL,Canberra Plaza
+Cashew,NONE,N/A
+Changi Airport,NATIONAL,Jewel Changi Airport
+Chinatown,LARGE_LOCAL,Chinatown Point
+Chinese Garden,NONE,N/A
+Choa Chu Kang,LARGE_LOCAL,Lot One Shoppers' Mall
+City Hall,NATIONAL,Raffles City Shopping Centre
+Clarke Quay,SMALL_REGIONAL,Clarke Quay Central
+Clementi,SMALL_REGIONAL,The Clementi Mall
+Commonwealth,NONE,N/A
+Dakota,NONE,N/A
+Dhoby Ghaut,NATIONAL,Plaza Singapura
+Dover,NONE,N/A
+Downtown,LARGE_LOCAL,Marina Bay Link Mall
+Esplanade,NATIONAL,Suntec City
+Eunos,NONE,N/A
+Expo,SMALL_REGIONAL,Changi City Point
+Farrer Park,SMALL_REGIONAL,City Square Mall
+Farrer Road,NONE,N/A
+Fort Canning,NONE,N/A
+Gardens by the Bay,NONE,N/A
+Geylang Bahru,NONE,N/A
+Great World,SMALL_REGIONAL,Great World City
+Gul Circle,NONE,N/A
+HarbourFront,NATIONAL,VivoCity
+Havelock,NONE,N/A
+Haw Par Villa,NONE,N/A
+Hillview,NONE,N/A
+Holland Village,LARGE_LOCAL,One Holland Village
+Hougang,LARGE_LOCAL,Hougang Mall
+Hume,NONE,N/A
+Jalan Besar,NONE,N/A
+Joo Koon,SMALL_LOCAL,FairPrice Hub
+Jurong East,LARGE_REGIONAL,JEM
+Kaki Bukit,NONE,N/A
+Kallang,NONE,N/A
+Katong Park,NONE,N/A
+Kembangan,NONE,N/A
+Kent Ridge,SMALL_LOCAL,One@KentRidge
+Khatib,NONE,N/A
+King Albert Park,SMALL_LOCAL,KAP Mall
+Kovan,SMALL_LOCAL,Heartland Mall Kovan
+Kranji,NONE,N/A
+Labrador Park,SMALL_LOCAL,Alexandra Retail Centre
+Lakeside,NONE,N/A
+Lavender,NONE,N/A
+Lentor,SMALL_LOCAL,Lentor Modern Mall
+Little India,LARGE_LOCAL,Mustafa Centre
+Lorong Chuan,NONE,N/A
+MacPherson,NONE,N/A
+Marina Bay,NONE,N/A
+Marina South Pier,NONE,N/A
+Marine Parade,SMALL_REGIONAL,Parkway Parade
+Marine Terrace,NONE,N/A
+Marsiling,NONE,N/A
+Marymount,NONE,N/A
+Mattar,NONE,N/A
+Maxwell,NONE,N/A
+Mayflower,NONE,N/A
+Mountbatten,NONE,N/A
+Napier,NONE,N/A
+Newton,NONE,N/A
+Nicoll Highway,NONE,N/A
+Novena,SMALL_REGIONAL,Velocity @ Novena Square
+one-north,SMALL_LOCAL,Galaxis
+Orchard,NATIONAL,ION Orchard
+Orchard Boulevard,SMALL_LOCAL,Tanglin Mall
+Outram Park,NONE,N/A
+Pasir Panjang,NONE,N/A
+Pasir Ris,LARGE_LOCAL,White Sands
+Paya Lebar,LARGE_REGIONAL,PLQ Mall
+Pioneer,NONE,N/A
+Potong Pasir,SMALL_LOCAL,The Poiz Centre
+Promenade,NATIONAL,Suntec City
+Punggol,LARGE_REGIONAL,Waterway Point
+Punggol Coast,LARGE_LOCAL,Punggol Coast Mall
+Queenstown,NONE,N/A
+Raffles Place,SMALL_REGIONAL,One Raffles Place
+Redhill,NONE,N/A
+Rochor,SMALL_LOCAL,Sim Lim Square
+Sembawang,LARGE_LOCAL,Sun Plaza
+Sengkang,LARGE_LOCAL,Compass One
+Serangoon,LARGE_REGIONAL,NEX
+Shenton Way,NONE,N/A
+Siglap,NONE,N/A
+Simei,LARGE_LOCAL,Eastpoint Mall
+Sixth Avenue,NONE,N/A
+Somerset,NATIONAL,313@Somerset
+Springleaf,NONE,N/A
+Stadium,SMALL_REGIONAL,Kallang Wave Mall
+Stevens,NONE,N/A
+Tai Seng,SMALL_LOCAL,Grantral Mall MacPherson
+Tampines,LARGE_REGIONAL,Tampines Mall
+Tampines East,NONE,N/A
+Tampines West,NONE,N/A
+Tan Kah Kee,NONE,N/A
+Tanah Merah,NONE,N/A
+Tanjong Katong,NONE,N/A
+Tanjong Pagar,LARGE_LOCAL,100AM Mall
+Tanjong Rhu,NONE,N/A
+Telok Ayer,NONE,N/A
+Telok Blangah,NONE,N/A
+Tiong Bahru,LARGE_LOCAL,Tiong Bahru Plaza
+Toa Payoh,SMALL_REGIONAL,Toa Payoh Hub
+Tuas Crescent,NONE,N/A
+Tuas Link,NONE,N/A
+Tuas West Road,NONE,N/A
+Ubi,NONE,N/A
+Upper Changi,NONE,N/A
+Upper Thomson,LARGE_LOCAL,Thomson Plaza
+Woodlands,LARGE_REGIONAL,Causeway Point
+Woodlands North,NONE,N/A
+Woodlands South,NONE,N/A
+Woodleigh,LARGE_LOCAL,Woodleigh Mall
+Yew Tee,SMALL_LOCAL,Yew Tee Point
+Yio Chu Kang,NONE,N/A
+Yishun,LARGE_REGIONAL,Northpoint City
