@@ -1349,6 +1349,205 @@ def calculate_commute_scores(
 
 
 # ---------------------------------------------------------------------------
+# Holistic rating (travel times + bus interchanges + shopping malls)
+# ---------------------------------------------------------------------------
+
+SCORING_CRITERIA_DIR = os.path.join(_REPO_ROOT, "scoring_criteria")
+_HOLISTIC_WEIGHTS_PATH       = os.path.join(SCORING_CRITERIA_DIR, "weights.json")
+_BUS_INTERCHANGES_CSV_PATH   = os.path.join(SCORING_CRITERIA_DIR, "bus_interchanges.csv")
+_SHOPPING_MALLS_CSV_PATH     = os.path.join(SCORING_CRITERIA_DIR, "shopping_malls.csv")
+
+
+def calculate_holistic_ratings(
+    year_month: str = ANALYSIS_MONTH,
+    station_scope: str = "all",
+    scoring_method: str = "log",
+    weight_method: str = "destinations",
+    start_hour: int = DESTINATIONS_START_HOUR,
+    end_hour: int = DESTINATIONS_END_HOUR,
+    custom_weekday_window: tuple[int, int] | None = None,
+    custom_weekend_window: tuple[int, int] | None = None,
+    custom_weekend_weight_ratio: float = 0.4,
+    tap: str = "out",
+    custom_weights: dict[str, float] | None = None,
+    verbose: bool = True,
+    show_counts: bool = False,
+) -> pd.DataFrame:
+    """
+    Calculate a composite holistic rating for each MRT station by combining:
+      - Travel time commute score (1–10, derived from the existing rating system)
+      - Bus interchange rating   (0–10, based on interchange size)
+      - Shopping mall rating     (0–10, based on mall tier)
+
+    Each component is normalised to a 0–1 scale before blending.  The final
+    holistic score is rescaled back to 1–10 using the same range.
+
+    Weights and category-to-score mappings are loaded from:
+        scoring_criteria/weights.json
+
+    The supplemental data files are:
+        scoring_criteria/bus_interchanges.csv   — NONE / SMALL / LARGE
+        scoring_criteria/shopping_malls.csv     — NONE / SMALL_LOCAL / LARGE_LOCAL /
+                                                  SMALL_REGIONAL / LARGE_REGIONAL / NATIONAL
+
+    Parameters
+    ----------
+    year_month : str
+        Month to analyse (must have a pre-processed daily-average CSV).
+    station_scope : str
+        Which stations to include: "all" (default), "residential", or "hdb".
+    scoring_method : str
+        Commute scoring method: "log" (default) or "linear".
+    weight_method : str
+        How to derive destination weights for the commute score.
+    start_hour / end_hour : int
+        Tap-out window for the "destinations" weight method.
+    custom_weekday_window / custom_weekend_window : tuple or None
+        Custom day-type windows for the "custom" weight method.
+    custom_weekend_weight_ratio : float
+        Weekend weight relative to weekday for the "custom" method.
+    tap : str
+        Passenger flow direction: "out" (default), "in", or "both".
+    custom_weights : dict or None
+        Manual destination weights, overriding the data-driven method.
+    verbose : bool
+        If True (default), print the holistic rating table.
+
+    Returns
+    -------
+    pd.DataFrame
+        Indexed by station name, sorted by holistic_rating descending, with columns:
+            commute_score, bus_interchange, bus_score,
+            shopping_mall, mall_score, holistic_rating
+    """
+    import json
+
+    # ------------------------------------------------------------------
+    # Load configuration
+    # ------------------------------------------------------------------
+    with open(_HOLISTIC_WEIGHTS_PATH) as f:
+        config = json.load(f)
+
+    travel_weight = config["travel_times"]
+    bus_weight    = config["bus_interchanges"]
+    mall_weight   = config["shopping_malls"]
+    bus_scores    = config["bus_interchange_scores"]
+    mall_scores   = config["shopping_mall_scores"]
+
+    assert abs(travel_weight + bus_weight + mall_weight - 1.0) < 1e-9, (
+        "weights.json: travel_times + bus_interchanges + shopping_malls must sum to 1.0"
+    )
+
+    # ------------------------------------------------------------------
+    # Commute scores (1–10)
+    # ------------------------------------------------------------------
+    commute_df = calculate_commute_scores(
+        year_month=year_month,
+        station_scope=station_scope,
+        weight_method=weight_method,
+        scoring_method=scoring_method,
+        verbose=False,
+        start_hour=start_hour,
+        end_hour=end_hour,
+        custom_weekday_window=custom_weekday_window,
+        custom_weekend_window=custom_weekend_window,
+        custom_weekend_weight_ratio=custom_weekend_weight_ratio,
+        tap=tap,
+        custom_weights=custom_weights,
+    )
+
+    # ------------------------------------------------------------------
+    # Load supplemental data
+    # ------------------------------------------------------------------
+    bus_df  = pd.read_csv(_BUS_INTERCHANGES_CSV_PATH)
+    mall_df = pd.read_csv(_SHOPPING_MALLS_CSV_PATH)
+    bus_map  = dict(zip(bus_df["station_name"],  bus_df["bus_interchange_size"]))
+    mall_map = dict(zip(mall_df["station_name"], mall_df["shopping_mall_tier"]))
+
+    # ------------------------------------------------------------------
+    # Build holistic rating
+    # ------------------------------------------------------------------
+    rows = []
+    for station in commute_df.index:
+        commute_score = int(commute_df.loc[station, "commute_score"])  # type: ignore[arg-type]
+
+        bus_tier  = bus_map.get(station, "NONE")
+        bus_raw   = bus_scores.get(bus_tier, 0)
+
+        mall_tier = mall_map.get(station, "NONE")
+        mall_raw  = mall_scores.get(mall_tier, 0)
+
+        # Normalise each component to [0, 1]
+        norm_commute = (commute_score - 1) / 9   # commute score is 1–10
+        norm_bus     = bus_raw / 10               # bus score is 0–10
+        norm_mall    = mall_raw / 10              # mall score is 0–10
+
+        holistic_norm  = travel_weight * norm_commute + bus_weight * norm_bus + mall_weight * norm_mall
+        holistic_score = round(1 + holistic_norm * 9, 2)   # rescale to 1–10
+
+        rows.append({
+            "station":        station,
+            "commute_score":  commute_score,
+            "bus_interchange": bus_tier,
+            "bus_score":      bus_raw,
+            "shopping_mall":  mall_tier,
+            "mall_score":     mall_raw,
+            "holistic_rating": holistic_score,
+        })
+
+    result_df = (
+        pd.DataFrame(rows)
+        .set_index("station")
+        .sort_values("holistic_rating", ascending=False)
+    )
+
+    # Include raw commute minutes so callers (e.g. the map) can display them.
+    result_df[COLUMN_EXPECTED_COMMUTE_MINUTES] = commute_df[COLUMN_EXPECTED_COMMUTE_MINUTES]
+
+    # Renormalise holistic_rating so the best station always reaches 10.0 and
+    # the worst always reaches 1.0.  Without this, theoretical extremes (e.g.
+    # needing a perfect commute score AND a NATIONAL mall AND a LARGE bus
+    # interchange simultaneously) are unreachable, compressing the real range
+    # to something like 2–9 and making the map misleadingly harsh.
+    raw = result_df["holistic_rating"]
+    lo, hi = raw.min(), raw.max()
+    if hi > lo:
+        result_df["holistic_rating"] = ((1 + 9 * (raw - lo) / (hi - lo)).round(2))
+
+    if verbose:
+        print("=" * 72)
+        print("Holistic MRT Station Ratings")
+        print(
+            f"Weights: travel_times={travel_weight:.0%}  "
+            f"shopping_malls={mall_weight:.0%}  "
+            f"bus_interchanges={bus_weight:.0%}"
+        )
+        print(f"(Weights file: scoring_criteria/weights.json)")
+        print("=" * 72)
+        print(
+            result_df[["commute_score", "bus_interchange", "bus_score",
+                        "shopping_mall", "mall_score", "holistic_rating"]]
+            .to_string()
+        )
+
+    if show_counts:
+        mall_order = ["NATIONAL", "LARGE_REGIONAL", "SMALL_REGIONAL",
+                      "LARGE_LOCAL", "SMALL_LOCAL", "NONE"]
+        bus_order  = ["LARGE", "SMALL", "NONE"]
+        mall_counts = result_df["shopping_mall"].value_counts()
+        bus_counts  = result_df["bus_interchange"].value_counts()
+        print()
+        print("Shopping mall tiers:")
+        for tier in mall_order:
+            print(f"  {tier:<16} {mall_counts.get(tier, 0):>3}")
+        print("Bus interchange sizes:")
+        for tier in bus_order:
+            print(f"  {tier:<16} {bus_counts.get(tier, 0):>3}")
+
+    return result_df
+
+
+# ---------------------------------------------------------------------------
 # Monthly normalization factors
 # ---------------------------------------------------------------------------
 

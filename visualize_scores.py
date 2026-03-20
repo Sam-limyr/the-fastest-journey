@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from data_driven_rankings import (
     calculate_commute_scores,
     calculate_data_driven_ratings,
+    calculate_holistic_ratings,
     ANALYSIS_MONTH,
     COLUMN_EXPECTED_COMMUTE_MINUTES,
     DESTINATIONS_START_HOUR,
@@ -376,6 +377,8 @@ def build_map(
     custom_weekend_weight_ratio: float = 0.4,
     tap: str = "out",
     custom_weights: dict[str, float] | None = None,
+    holistic: bool = False,
+    holistic_verbose: bool = False,
 ) -> str:
     """
     Compute commute scores, fetch station coordinates, and write an HTML map.
@@ -405,10 +408,13 @@ def build_map(
         "out" (default), "in", or "both".
     custom_weights : dict[str, float] or None
         Custom weights to use instead of deriving from data.
+    holistic : bool
+        If True, colour stations by the composite holistic rating (commute +
+        shopping mall + bus interchange) instead of commute score alone.
+        The holistic ratings table is also printed to the terminal.
 
     Returns the path of the written HTML file.
     """
-    print("Computing commute scores …")
     _custom_kwargs = dict(
         custom_weekday_window=custom_weekday_window,
         custom_weekend_window=custom_weekend_window,
@@ -416,7 +422,29 @@ def build_map(
         tap=tap,
         custom_weights=custom_weights,
     )
-    if scoring_method == "minutes":
+    if holistic:
+        print("Computing holistic ratings …")
+        _holistic_scoring = scoring_method if scoring_method != "minutes" else "log"
+        _holistic_df = calculate_holistic_ratings(
+            year_month=year_month,
+            station_scope=station_scope,
+            scoring_method=_holistic_scoring,
+            weight_method=weight_method,
+            start_hour=start_hour,
+            end_hour=end_hour,
+            verbose=holistic_verbose,
+            show_counts=holistic_verbose,
+            **_custom_kwargs,
+        )
+        scores_df = _holistic_df.copy()
+        # Rename the original commute_score before overwriting with rounded holistic
+        scores_df = scores_df.rename(columns={"commute_score": "commute_score_base"})
+        scores_df["commute_score"] = (
+            scores_df["holistic_rating"].clip(1, 10).round().astype(int)
+        )
+        display_label = "holistic score"
+    elif scoring_method == "minutes":
+        print("Computing commute scores …")
         raw_df = calculate_data_driven_ratings(
             year_month=year_month, station_scope="all", verbose=False,
             weight_method=weight_method, start_hour=start_hour, end_hour=end_hour,
@@ -435,6 +463,7 @@ def build_map(
         )
         display_label = "raw minutes"
     else:
+        print("Computing commute scores …")
         scores_df = calculate_commute_scores(
             year_month=year_month, station_scope=station_scope,
             weight_method=weight_method, scoring_method=scoring_method, verbose=False,
@@ -535,14 +564,27 @@ def build_map(
         bg       = score_to_color(score)
         fg_txt   = text_color_for(score)
 
-        tooltip_html = (
-            f"<b>{station}</b><br>"
-            + (
-                f"Expected commute: <b>{minutes:.0f} min</b>"
-                if scoring_method == "minutes"
-                else f"Score: <b>{score}/10</b><br>Expected commute: {minutes:.0f} min"
+        if holistic:
+            holistic_val    = row["holistic_rating"]
+            commute_base    = int(row["commute_score_base"])
+            mall_tier       = row["shopping_mall"]
+            bus_tier        = row["bus_interchange"]
+            tooltip_html = (
+                f"<b>{station}</b><br>"
+                f"Holistic: <b>{holistic_val:.2f}/10</b><br>"
+                f"Commute: {commute_base}/10 · {minutes:.0f} min<br>"
+                f"Mall: {mall_tier}<br>"
+                f"Bus interchange: {bus_tier}"
             )
-        )
+        else:
+            tooltip_html = (
+                f"<b>{station}</b><br>"
+                + (
+                    f"Expected commute: <b>{minutes:.0f} min</b>"
+                    if scoring_method == "minutes"
+                    else f"Score: <b>{score}/10</b><br>Expected commute: {minutes:.0f} min"
+                )
+            )
         target = score_groups[score]
 
         folium.CircleMarker(
@@ -602,6 +644,14 @@ def build_map(
         else:
             detail = "&mdash;"
 
+        detail_div = (
+            ""
+            if holistic
+            else (
+                f'<div class="score-detail" style="display:none;font-size:10px;color:#555;">'
+                f'{detail}</div>'
+            )
+        )
         score_rows_html += (
             f'<div style="display:flex;align-items:flex-start;margin:2px 0;">'
             f'<div style="width:20px;height:20px;border-radius:50%;background:{bg};'
@@ -610,8 +660,7 @@ def build_map(
             f'flex-shrink:0;">{s}</div>'
             f'<div style="margin-left:6px;line-height:1.4;">'
             f'{label}'
-            f'<div class="score-detail" style="display:none;font-size:10px;color:#555;">'
-            f'{detail}</div>'
+            f'{detail_div}'
             f'</div></div>\n'
         )
 
@@ -647,11 +696,9 @@ def build_map(
     box-shadow:2px 2px 6px rgba(0,0,0,0.25);min-width:165px;
     max-height:80vh;overflow-y:auto;
 ">
-<b>Commute score</b><br>
-<span style="font-size:10px;color:#666;">lower = longer commute</span><br>
-<label style="font-size:11px;cursor:pointer;">
-  <input type="checkbox" id="detailsToggle" onchange="toggleDetails()"> Show details
-</label><br><br>
+{"<b>Holistic score</b>" if holistic else "<b>Commute score</b>"}<br>
+<span style="font-size:10px;color:#666;">{"commute · mall · bus" if holistic else "lower = longer commute"}</span><br>
+{"" if holistic else '<label style="font-size:11px;cursor:pointer;"><input type="checkbox" id="detailsToggle" onchange="toggleDetails()"> Show details</label><br>'}<br>
 {score_rows_html}
 <br><b>Filter:</b><br>
 <span style="font-size:11px;">
@@ -749,7 +796,7 @@ window.addEventListener('load', function() {{
         box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
         pointer-events: none;
     ">
-        Singapore MRT Commute Score &nbsp;|&nbsp;
+        {"Singapore MRT Holistic Score" if holistic else "Singapore MRT Commute Score"} &nbsp;|&nbsp;
         <span style="font-weight:normal;font-size:12px;">
             {year_month[:4]}-{year_month[4:]} &middot; all-hours weighted &middot;
             {display_label} &middot; {scope_labels.get(station_scope, station_scope)} stations

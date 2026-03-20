@@ -59,6 +59,7 @@ from data_driven_rankings import (
     DESTINATIONS_START_HOUR,
     DESTINATIONS_END_HOUR,
     get_destination_weights,
+    _HOLISTIC_WEIGHTS_PATH,
 )
 from visualize_scores import build_map, build_weights_map, OUTPUT_HTML, OUTPUT_WEIGHTS_HTML
 
@@ -401,6 +402,27 @@ def main() -> None:
             "instead of data-driven weights. Overrides --weight-method."
         ),
     )
+    parser.add_argument(
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        help="Print additional detail (e.g. category counts) alongside the main output.",
+    )
+    parser.add_argument(
+        "--calculate-holistic-rating",
+        dest="holistic_rating",
+        action="store_true",
+        help=(
+            "Calculate a composite holistic rating for each station by combining "
+            "the travel-time commute score with bus interchange and shopping mall "
+            "ratings.  Weights and category-to-score mappings are configured in "
+            f"{_HOLISTIC_WEIGHTS_PATH}.  "
+            "Supplemental data: scoring_criteria/bus_interchanges.csv and "
+            "scoring_criteria/shopping_malls.csv.  "
+            "--score and --scope apply as normal; other flags (--weight-method, "
+            "--weekday, --weekend, etc.) also apply to the underlying commute score."
+        ),
+    )
 
     args = parser.parse_args(processed_argv)
 
@@ -431,6 +453,24 @@ def main() -> None:
         tap=args.tap,
         custom_weights=custom_weights,
     )
+
+    if args.holistic_rating:
+        build_map(
+            scoring_method=args.score if args.score != "weights" else "log",
+            station_scope=args.scope,
+            weight_method=weight_method,
+            start_hour=args.hour_from,
+            end_hour=args.hour_to,
+            holistic=True,
+            holistic_verbose=args.verbose,
+            **_custom_kwargs,
+        )
+        print(f"\nOpening map: {OUTPUT_HTML}")
+        html_path = OUTPUT_HTML
+        if platform.system() != 'Windows':
+            html_path = "file://" + html_path
+        webbrowser.open(html_path)
+        return
 
     if in_weights_mode:
         cmd_weights(

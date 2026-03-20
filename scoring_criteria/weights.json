@@ -1,0 +1,23 @@
+{
+    "_comment": "Weights for the holistic MRT station rating system. All three weights must sum to 1.0.",
+    "travel_times": 0.75,
+    "shopping_malls": 0.2,
+    "bus_interchanges": 0.05,
+
+    "_comment_bus": "Numeric scores for each bus interchange size category (scale 0–10).",
+    "bus_interchange_scores": {
+        "NONE":  0,
+        "SMALL": 5,
+        "LARGE": 10
+    },
+
+    "_comment_mall": "Numeric scores for each shopping mall tier category (scale 0–10).",
+    "shopping_mall_scores": {
+        "NONE":           0,
+        "SMALL_LOCAL":    3,
+        "LARGE_LOCAL":    5,
+        "SMALL_REGIONAL": 6,
+        "LARGE_REGIONAL": 8,
+        "NATIONAL":       10
+    }
+}

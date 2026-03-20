@@ -7,6 +7,9 @@ data-driven destination weights.
 The output is an interactive HTML map where each station is labelled with a
 score on a red-to-green colour scale.
 
+Holistic ranking of MRT connectivity, shopping malls, and bus interchanges:
+![Holistic Rankings](app_screenshots/holistic_rankings.png)
+
 HDB estate MRTs rated on a normalized scale of 1-10:
 ![HDB ratings](app_screenshots/hdb_log_score.png)
 
@@ -83,6 +86,26 @@ Uses manually defined destination weights from `get_weights()` in
 customizing the scoring based on personal preferences or specific scenarios.
 
 ```
+python analyse.py --calculate-holistic-rating
+```
+Computes a **composite holistic rating** for each station by combining three
+independent scoring systems:
+
+| Component | Default weight | Source |
+|-----------|---------------|--------|
+| Travel-time commute score | 70 % | Existing MRT rating system |
+| Shopping mall tier | 20 % | `scoring_criteria/shopping_malls.csv` |
+| Bus interchange size | 10 % | `scoring_criteria/bus_interchanges.csv` |
+
+Each component is normalised to a 0–1 scale before blending; the final
+holistic score is rescaled to 1–10.  Weights and category-to-score mappings
+are configured in **`scoring_criteria/weights.json`** — edit that file to
+adjust the balance between the three systems.
+
+All other flags (`--scope`, `--weight-method`, `--weekday`, `--weekend`, etc.)
+apply as normal to the underlying commute score.
+
+```
 python analyse.py --tap in --score weights --weight-method morning_peak
 ```
 Shows a destination-weights map based on tap-ins during the morning peak —
@@ -98,6 +121,7 @@ python analyse.py [--score <mode>] [--scope <scope>]
                   [--weekend [--from <hour>] [--to <hour>]]
                   [--weekend-weight-ratio <ratio>]
                   [--tap <direction>]
+                  [--calculate-holistic-rating] [--verbose]
 ```
 
 | Flag | Choices / type | Default | Description |
@@ -110,6 +134,8 @@ python analyse.py [--score <mode>] [--scope <scope>]
 | `--weekend` | flag | — | Enable a custom weekend/PH component; `--from`/`--to` immediately following set its window |
 | `--weekend-weight-ratio` | float | `0.4` | Weight of the weekend component relative to weekday (default 0.4 = 2/5 ratio) |
 | `--tap` | `out`, `in`, `both` | `out` | Which passenger flow direction to use as destination weights |
+| `--calculate-holistic-rating` | flag | — | Display a composite 1–10 holistic rating map combining travel times, shopping malls, and bus interchanges. Weights live in `scoring_criteria/weights.json` |
+| `--verbose` | flag | — | Print additional detail alongside the main output. With `--calculate-holistic-rating`: prints the full ratings table and per-category counts |
 
 **Score modes**
 
@@ -317,17 +343,51 @@ rm data_cache/station_coords_cache.json data_cache/mrt_lines_cache.geojson data_
 
 ---
 
+## Holistic rating system
+
+`--calculate-holistic-rating` blends three independent dimensions into a single
+1–10 score per station.
+
+**Supplemental data files** (in `scoring_criteria/`):
+
+| File | Categories |
+|------|-----------|
+| `bus_interchanges.csv` | `NONE`, `SMALL`, `LARGE` |
+| `shopping_malls.csv` | `NONE`, `SMALL_LOCAL`, `LARGE_LOCAL`, `SMALL_REGIONAL`, `LARGE_REGIONAL`, `NATIONAL` |
+
+**Configuration** (`scoring_criteria/weights.json`):
+
+```json
+{
+    "travel_times":    0.7,
+    "shopping_malls":  0.2,
+    "bus_interchanges": 0.1,
+    "bus_interchange_scores":  { "NONE": 0, "SMALL": 5, "LARGE": 10 },
+    "shopping_mall_scores": {
+        "NONE": 0, "SMALL_LOCAL": 2, "LARGE_LOCAL": 5, "REGIONAL": 7, "NATIONAL": 10
+    }
+}
+```
+
+Edit `weights.json` to adjust the balance between the three systems (weights
+must sum to 1.0) or to change the numeric score assigned to each category.
+
+---
+
 ## Key files
 
 | File | Purpose |
 |------|---------|
 | `analyse.py` | **Entrypoint.** Parses CLI arguments and calls `build_map()`. |
 | `visualize_scores.py` | Fetches station coordinates, computes scores, and writes the HTML map. |
-| `data_driven_rankings.py` | Core ranking logic: loads volumes, builds weights, computes expected commute times, and z-scores. |
+| `data_driven_rankings.py` | Core ranking logic: loads volumes, builds weights, computes expected commute times, z-scores, and holistic ratings. |
 | `mrt_distance/mrt_distance.py` | Reads `travel_times.csv`; defines residential and HDB station lists. |
 | `mrt_volume/explore.py` | Loads and normalises the LTA passenger volume CSV. |
 | `mrt_distance/travel_times.csv` | ~20 k rows of pairwise MRT travel times. |
 | `mrt_volume/data/station_volumes/transport_node_train_202506.csv` | Hourly tap-in/out volumes (June 2025). |
+| `scoring_criteria/weights.json` | Holistic rating weights and category-to-score mappings. |
+| `scoring_criteria/bus_interchanges.csv` | Bus interchange size per station (NONE / SMALL / LARGE). |
+| `scoring_criteria/shopping_malls.csv` | Shopping mall tier per station (NONE / SMALL_LOCAL / LARGE_LOCAL / REGIONAL / NATIONAL). |
 | `data_cache/station_coords_cache.json` | Cached WGS84 station coordinates (auto-generated; delete to refresh). |
 | `data_cache/mrt_lines_cache.geojson` | Cached MRT/LRT track geometries from OpenStreetMap (auto-generated; delete to refresh). |
 | `data_cache/future_mrt_cache.geojson` | Cached under-construction/proposed lines from OpenStreetMap (auto-generated; delete to refresh). |
